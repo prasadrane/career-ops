@@ -2772,7 +2772,7 @@ export function collectFingerprintHistory(scanHistoryText = '') {
   for (const line of scanHistoryText.split('\n')) {
     const cols = line.split('\t');
     // Skip the header row. Older 7-col headers fall out of the `cols.length < 8`
-    // guard below on their own, but the 12-col header names col 7 `fingerprint`
+    // guard below on their own, but the 13-col header names col 7 `fingerprint`
     // (non-empty), so it would otherwise pass that guard and be read as data.
     // Real rows always carry a URL in col 0, never the literal `url`.
     if (cols[0] === 'url') continue;

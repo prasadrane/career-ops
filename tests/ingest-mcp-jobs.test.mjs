@@ -335,3 +335,48 @@ test('recorded fixtures for all three servers ingest together', () => {
     assert.equal(r.json.unconfirmed, 2);
   } finally { sb.done(); }
 });
+
+const FR_ACME = { id: 'f1', resultItemId: 'r1', title: 'Applied AI Engineer', company: 'Acme AI', url: 'https://example-board.test/jobs/1' };
+const INDEED_ACME = { title: 'Applied AI Engineer', company: 'Acme AI', url: 'https://www.indeed.com/viewjob?jk=zzz999' };
+
+test('two aggregator rows for the same company+role (different URLs) -> one unconfirmed row, credited', () => {
+  const sb = sandbox();
+  try {
+    put(sb.raw, 'foundrole-q1.json', { server: 'foundrole', query_id: 'q1', rows: [FR_ACME] });
+    put(sb.raw, 'jobspipe-q1.json', { server: 'jobspipe', query_id: 'q1', rows: [INDEED_ACME] });
+    const r = ingest(sb.root);
+    assert.equal(r.json.unconfirmed, 1);
+    assert.equal(r.json.added, 0);
+    assert.equal(r.json.dupes, 1);
+    const rows = history(sb.root).slice(1);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0][5], 'unconfirmed');
+    assert.match(rows[0][10], /also_seen:mcp-(foundrole|jobspipe)/);
+  } finally { sb.done(); }
+});
+
+test('aggregator pair + employer-direct row for the same role -> employer added, aggregators absorbed', () => {
+  const sb = sandbox();
+  try {
+    put(sb.raw, 'foundrole-q1.json', { server: 'foundrole', rows: [FR_ACME] });
+    put(sb.raw, 'jobspipe-q1.json', { server: 'jobspipe', rows: [INDEED_ACME, ACME('https://boards.greenhouse.io/acmeai/jobs/4001')] });
+    const r = ingest(sb.root);
+    assert.equal(r.json.added, 1);
+    assert.equal(r.json.unconfirmed, 0);
+    assert.equal(r.json.dupes, 2);
+    const rows = history(sb.root).slice(1);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0][5], 'added');
+  } finally { sb.done(); }
+});
+
+test('an earlier aggregator-only row never suppresses a later employer-direct posting', () => {
+  const sb = sandbox();
+  try {
+    put(sb.raw, 'foundrole-q1.json', { server: 'foundrole', rows: [FR_ACME] });
+    assert.equal(ingest(sb.root).json.unconfirmed, 1);
+    put(sb.raw, 'jobspipe-q1.json', { server: 'jobspipe', rows: [ACME('https://boards.greenhouse.io/acmeai/jobs/4001')] });
+    const r = ingest(sb.root);
+    assert.equal(r.json.added, 1);
+  } finally { sb.done(); }
+});

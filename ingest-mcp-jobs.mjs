@@ -200,6 +200,10 @@ export function plan(jobs, config, { today }) {
   const summary = { seen: jobs.length, filtered: { title: 0, location: 0, blacklist: 0, cooldown: 0 }, dupes: 0, added: 0, unconfirmed: 0 };
   const runByUrl = new Map();
   const runByKey = new Map();
+  // Aggregator rows by company+role, kept apart from runByKey and NEVER fed into
+  // snap.seenCompanyRoles: it only credits aggregator-vs-aggregator duplicates, so a
+  // later employer-direct row is still added normally.
+  const aggByKey = new Map();
   const entries = [];
 
   const credit = (entry, source) => {
@@ -218,7 +222,7 @@ export function plan(jobs, config, { today }) {
 
     // 1. Already ingested earlier in this run (any source): credit it, count a dupe.
     const sameUrl = runByUrl.get(dedupUrl);
-    const sameRole = job.company ? runByKey.get(key) : undefined;
+    const sameRole = job.company ? (runByKey.get(key) || (aggregator ? aggByKey.get(key) : undefined)) : undefined;
     if (sameUrl || sameRole) { credit(sameUrl || sameRole, job.source); summary.dupes++; continue; }
     // 2. Seen in a previous run / the tracker. Employer-direct rows are compared by
     // URL and company+role; an aggregator copy is compared by URL AND absorbed into a
@@ -238,6 +242,7 @@ export function plan(jobs, config, { today }) {
       snap.seenCompanyRoles.add(key);
       recordRequisition(seenRequisitions, key, requisition);
     }
+    if (aggregator && job.company) aggByKey.set(key, entry);
     snap.seen.add(dedupUrl);
     if (aggregator) summary.unconfirmed++; else summary.added++;
   }
