@@ -1,0 +1,108 @@
+# User-layer file (data/*). Target companies scanned FIRST in every pipeline run.
+# Source: list supplied by the user in session 2026-10-04. Order inside a tier = user's priority.
+# tier: dotnet  = .NET / C# stack companies;  general = general tech companies.
+# location = user's preferred hub(s) for that company (free text; used as the MCP `location` hint).
+# `board` is filled in by `node discover-ats.mjs` / the target-first scan once an ATS board resolves; never guess it.
+companies:
+  # ── .NET / C# tech stack ──
+  - { name: Roblox, tier: dotnet, location: "San Mateo" }
+  - { name: Snap, tier: dotnet, location: "Santa Monica" }
+  - { name: Microsoft, tier: dotnet, location: "Mountain View / San Francisco" }
+  - { name: Unity Technologies, tier: dotnet, location: "San Francisco" }
+  - { name: Adobe, tier: dotnet, location: "San Jose / San Francisco" }
+  - { name: CrowdStrike, tier: dotnet, location: "Sunnyvale" }
+  - { name: Zillow, tier: dotnet, location: "San Francisco" }
+  - { name: Autodesk, tier: dotnet, location: "San Francisco" }
+  - { name: ServiceTitan, tier: dotnet, location: "Glendale" }
+  - { name: Walt Disney / Disney+, tier: dotnet, location: "Burbank / San Francisco" }
+  - { name: Electronic Arts, tier: dotnet, location: "Redwood City" }
+  - { name: Blizzard Entertainment, tier: dotnet, location: "Irvine" }
+  - { name: PlayStation, tier: dotnet, location: "San Mateo" }
+  - { name: BlackRock, tier: dotnet, location: "San Francisco" }
+  - { name: CoStar Group, tier: dotnet, location: "Irvine / San Diego" }
+  - { name: Western Digital, tier: dotnet, location: "San Jose / Irvine" }
+  - { name: Dexcom, tier: dotnet, location: "San Diego" }
+  - { name: Wells Fargo, tier: dotnet, location: "San Francisco" }
+  - { name: Viasat, tier: dotnet, location: "Carlsbad" }
+  - { name: Esri, tier: dotnet, location: "Redlands" }
+  - { name: Charles Schwab, tier: dotnet, location: "San Francisco" }
+  - { name: Trimble, tier: dotnet, location: "Sunnyvale" }
+  - { name: Edwards Lifesciences, tier: dotnet, location: "Irvine" }
+  - { name: First American, tier: dotnet, location: "Santa Ana" }
+  - { name: CoreLogic, tier: dotnet, location: "Irvine" }
+  # ── General tech stack ──
+  - { name: OpenAI, tier: general, location: "San Francisco" }
+  - { name: Anthropic, tier: general, location: "San Francisco" }
+  - { name: Databricks, tier: general, location: "San Francisco" }
+  - { name: Stripe, tier: general, location: "San Francisco / South San Francisco" }
+  - { name: Meta, tier: general, location: "Menlo Park" }
+  - { name: Netflix, tier: general, location: "Los Gatos" }
+  - { name: Snowflake, tier: general, location: "San Mateo" }
+  - { name: Pinterest, tier: general, location: "San Francisco" }
+  - { name: Plaid, tier: general, location: "San Francisco" }
+  - { name: Airbnb, tier: general, location: "San Francisco" }
+  - { name: Coinbase, tier: general, location: "San Francisco" }
+  - { name: Uber, tier: general, location: "San Francisco" }
+  - { name: DoorDash, tier: general, location: "San Francisco" }
+  - { name: Google, tier: general, location: "Mountain View" }
+  - { name: Apple, tier: general, location: "Cupertino" }
+  - { name: Robinhood, tier: general, location: "Menlo Park" }
+  - { name: Lyft, tier: general, location: "San Francisco" }
+  - { name: Instacart, tier: general, location: "San Francisco" }
+  - { name: ByteDance / TikTok, tier: general, location: "San Jose" }
+  - { name: Chime, tier: general, location: "San Francisco" }
+  - { name: Palantir, tier: general, location: "Palo Alto" }
+  - { name: Figma, tier: general, location: "San Francisco" }
+  - { name: Waymo, tier: general, location: "Mountain View" }
+  - { name: Dropbox, tier: general, location: "San Francisco" }
+  - { name: Nvidia, tier: general, location: "Santa Clara" }
+  - { name: Block (Square), tier: general, location: "San Francisco" }
+  - { name: Cruise, tier: general, location: "San Francisco" }
+  - { name: LinkedIn, tier: general, location: "Sunnyvale" }
+  - { name: Affirm, tier: general, location: "San Francisco" }
+  - { name: Asana, tier: general, location: "San Francisco" }
+  - { name: Notion, tier: general, location: "San Francisco" }
+  - { name: Zoom, tier: general, location: "San Jose" }
+  - { name: Palo Alto Networks, tier: general, location: "Santa Clara" }
+  - { name: Atlassian, tier: general, location: "San Francisco" }
+  - { name: Rippling, tier: general, location: "San Francisco" }
+  - { name: Datadog, tier: general, location: "San Francisco" }
+  - { name: Twilio, tier: general, location: "San Francisco" }
+  - { name: HashiCorp, tier: general, location: "San Francisco" }
+  - { name: Cloudflare, tier: general, location: "San Francisco" }
+  - { name: Slack, tier: general, location: "San Francisco" }
+  - { name: Samsara, tier: general, location: "San Francisco" }
+  - { name: Rubrik, tier: general, location: "Palo Alto" }
+  - { name: Nutanix, tier: general, location: "San Jose" }
+  - { name: Okta, tier: general, location: "San Francisco" }
+  - { name: Pure Storage, tier: general, location: "Mountain View" }
+  - { name: Amazon (AWS), tier: general, location: "Bay Area hubs" }
+  - { name: Zscaler, tier: general, location: "San Jose" }
+  - { name: Salesforce, tier: general, location: "San Francisco" }
+  - { name: GitHub, tier: general, location: "San Francisco" }
+  - { name: Box, tier: general, location: "Redwood City" }
+  - { name: Workday, tier: general, location: "Pleasanton" }
+  - { name: Splunk, tier: general, location: "San Francisco" }
+  - { name: Intuit, tier: general, location: "Mountain View" }
+  - { name: Visa, tier: general, location: "Foster City" }
+  - { name: PayPal, tier: general, location: "San Jose" }
+  - { name: Cisco, tier: general, location: "San Jose" }
+  - { name: Juniper Networks, tier: general, location: "Sunnyvale" }
+  - { name: eBay, tier: general, location: "San Jose" }
+  - { name: Oracle, tier: general, location: "Redwood Shores" }
+  - { name: Broadcom, tier: general, location: "San Jose" }
+  - { name: ServiceNow, tier: general, location: "Santa Clara" }
+  - { name: Intel, tier: general, location: "Santa Clara" }
+  - { name: AMD, tier: general, location: "Santa Clara" }
+  - { name: Roku, tier: general, location: "San Jose" }
+  - { name: Applied Materials, tier: general, location: "Santa Clara" }
+  - { name: KLA, tier: general, location: "Milpitas" }
+  - { name: Qualcomm, tier: general, location: "San Diego" }
+  - { name: Illumina, tier: general, location: "San Diego" }
+  - { name: Veeva Systems, tier: general, location: "Pleasanton" }
+  - { name: Procore, tier: general, location: "Carpinteria" }
+  - { name: Dolby, tier: general, location: "San Francisco" }
+  - { name: Marvell, tier: general, location: "Santa Clara" }
+  - { name: Gen Digital (Symantec), tier: general, location: "San Jose" }
+  - { name: Yahoo, tier: general, location: "Sunnyvale" }
+  - { name: Yelp, tier: general, location: "San Francisco" }
