@@ -76,7 +76,7 @@ test('MCP liveness agreement below the floor -> insufficient-data; at floor it i
         const url = `https://agg.example/${i}`;
         const agrees = i < agreeCount;
         // MCP predicted live (no ghost flag); outcome live when agrees, expired otherwise
-        rows.push(hist(url, 'mcp-jobspipe', 'unconfirmed'));
+        rows.push(hist(url, 'mcp-jobspipe', 'unconfirmed', { flags: 'last_verified' }));
         tr += trow(i + 1, agrees ? 'Applied' : 'Discarded', agrees ? 'liveness: active' : 'expired at employer', url);
       }
       w(root, 'data/scan-history.tsv', rows.join('\n') + '\n');
@@ -102,6 +102,23 @@ test('ghost-flagged MCP row that later proved expired counts as agreement', asyn
     w(root, 'data/applications.md', TRACKER_HEAD + trow(1, 'Discarded', 'not found at employer', 'https://agg.example/1'));
     const r = await probe({ root, since: SINCE });
     assert.deepEqual([r.detail.mcpLivenessAgreement.n, r.detail.mcpLivenessAgreement.agree], [1, 1]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('liveness outcome regexes: "active interview" is not live, "$410" is not dead; rows without a hint are skipped', async () => {
+  const root = mkRoot();
+  try {
+    w(root, 'data/scan-history.tsv', [
+      hist('https://agg.example/1', 'mcp-jobspipe', 'unconfirmed', { flags: 'last_verified' }),
+      hist('https://agg.example/2', 'mcp-jobspipe', 'unconfirmed', { flags: 'last_verified' }),
+      hist('https://agg.example/3', 'mcp-jobspipe', 'unconfirmed'),   // no ghost/last_verified hint
+    ].join('\n') + '\n');
+    w(root, 'data/applications.md', TRACKER_HEAD
+      + trow(1, 'Interview', 'active interview scheduled', 'https://agg.example/1')
+      + trow(2, 'Applied', 'comp up to $410k', 'https://agg.example/2')
+      + trow(3, 'Discarded', 'expired at employer', 'https://agg.example/3'));
+    const r = await probe({ root, since: SINCE });
+    assert.equal(r.detail.mcpLivenessAgreement.n, 0);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -132,7 +149,9 @@ test('missing/empty data -> insufficient-data, no throw; below-floor pipeline to
     pipeline(root, { verified: 1, unconfirmed: 2 });
     r = await probe({ root, since: SINCE });
     assert.equal(r.verdict, 'insufficient-data');
-    assert.equal(r.metrics.unconfirmedPct, 67);              // number still reported, verdict honest about n
+    assert.equal(r.metrics.unconfirmedPct, '(n too small)');  // 3 rows: no bare percentage below the floor
+    assert.equal(r.metrics.verifiedPct, '(n too small)');
+    assert.equal(r.metrics.aggregatorOnlyPct, '(n too small)');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

@@ -61,6 +61,21 @@ test('readPipeline parses markers; readPortals/readScanRuns/readRunLedgers read 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('BOM-prefixed TSV headers still resolve; readPortals honors CAREER_OPS_PORTALS', () => {
+  const root = mkRoot();
+  const prev = process.env.CAREER_OPS_PORTALS;
+  try {
+    w(root, 'data/scan-runs.tsv', '﻿timestamp\tstatus\tnew_added\n2026-09-01T00:00:00Z\tok\t3\n');
+    assert.equal(readScanRuns(root)[0].timestamp, '2026-09-01T00:00:00Z');
+    w(root, 'alt/portals.yml', 'mcp_sources:\n  enabled: [foundrole]\n');
+    process.env.CAREER_OPS_PORTALS = join(root, 'alt', 'portals.yml');
+    assert.deepEqual(readPortals(root).mcp_sources.enabled, ['foundrole']);
+  } finally {
+    if (prev === undefined) delete process.env.CAREER_OPS_PORTALS; else process.env.CAREER_OPS_PORTALS = prev;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('readTracker resolves urlKey from the url column or the report **URL:** header', () => {
   const root = mkRoot();
   try {

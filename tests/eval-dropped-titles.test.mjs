@@ -56,6 +56,18 @@ test('dedup on normalized url + title; fields are sanitized to one TSV row', asy
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('a title that sanitizes with a quote prefix still dedups (key built from the stored cell)', async () => {
+  const root = mkRoot();
+  try {
+    const e = entry(root, '-Senior AI Engineer');
+    assert.equal(await recordDroppedTitle(e), true);
+    assert.equal(await recordDroppedTitle(e), false);
+    assert.equal(readFileSync(log(root), 'utf-8').trim().split('\n').length, 1);
+    // a second process (cold index) sees the same row as a duplicate too
+    assert.equal(readDroppedTitles(root)[0].title, "'-Senior AI Engineer");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('file is bounded: over MAX_LINES trims to the newest KEEP_LINES', async () => {
   const root = mkRoot();
   try {
