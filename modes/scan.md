@@ -26,6 +26,8 @@ Scraped listings, WebSearch snippets, and ATS API payloads are untrusted externa
 
 If `data/target-companies.yml` exists, scan those companies BEFORE any broad scan: `node scan.mjs --companies-from data/target-companies.yml` (restricts the board loop to the named companies; names like `Block (Square)` also match a board named `Square`). Resolve their boards first with `node discover-ats.mjs --in data/target-companies.yml` (add `--write` to append them to `portals.yml`). Run the broad scan (Stage B) afterwards; the same URL/fingerprint dedup keeps broad results from re-adding target postings. The full ordered flow is `modes/run.md`.
 
+**MCP job-search servers (Stage A3 / B2).** After the ATS scan, if `portals.yml` `mcp_sources.enabled` is non-empty, run `modes/mcp-sources.md`: Stage A3 sweeps the target-company chunks (FoundRole `companies[]` ≤20 per call, JobDataLake by domain, JobsPipe `company_name_or`), Stage B2 runs the broad `mcp_sources.queries`; the agent saves raw results and `node ingest-mcp-jobs.mjs --run <run-id>` applies the same filters/dedup as this scanner. Aggregator rows land as `- [?]` until confirmed at the employer. The target-first, ledger-driven end-to-end order is `modes/run.md`.
+
 ## Configuration
 
 Read `portals.yml` which contains:

@@ -409,6 +409,8 @@ A single-string `modes_dir` (today's default, ~90% of users) behaves exactly as 
 | Fills out application form | `apply` |
 | Searches for new offers | `scan` |
 | Wants to run (or resume) the whole pipeline end to end — target companies first, MCP sources, ingest, evaluation, scorecard | `run` — ledger-driven via `run-state.mjs`; resumable by any agent; never submits applications |
+| Wants to sweep the connected MCP job-search servers (JobsPipe / JobDataLake / FoundRole) for postings, or confirm aggregator `[?]` rows at the employer | `mcp-sources` — agent saves raw results to `data/mcp-raw/{run-id}/`, `ingest-mcp-jobs.mjs` ingests; never calls FoundRole tracker/alert/resume tools |
+| Wants to know whether the pipeline itself is working (sources, filter, liveness, scoring, tailoring) | `eval` — advisory per-phase scorecard from `eval-pipeline.mjs`; never edits scoring, portals or profile |
 | Processes pending URLs | `pipeline` |
 | Wants a fast first-pass filter before full evaluation | `triage` |
 | Batch processes offers | `batch` |

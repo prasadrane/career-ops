@@ -20,6 +20,8 @@ table in `AGENTS.md` (mirrored in `CLAUDE.md`).
 | `pipeline.md` | `pipeline` | Process the URL inbox (`data/pipeline.md`) |
 | `scan.md` | `scan` | Portal scanner (job discovery) |
 | `run.md` | `run` | Ledger-driven full pipeline (target companies first, MCP sources, ingest, evaluate, scorecard); resumable by any agent |
+| `eval.md` | `eval` | Pipeline scorecard per phase (sources, filter, liveness, scoring, tailoring, outcomes); advisory only, optional suggest-only proposals and golden labels |
+| `mcp-sources.md` | `mcp-sources` | Sweep the JobsPipe / JobDataLake / FoundRole MCP servers, save raw results, hand them to `ingest-mcp-jobs.mjs`; confirms aggregator `[?]` rows at the employer |
 | `batch.md` | `batch` | Mass processing with headless workers |
 | `apply.md` | `apply` | Live application assistant (form filling; never submits) |
 | `pdf.md` | `pdf` | ATS-optimized PDF generation |

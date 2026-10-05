@@ -51,6 +51,14 @@ List `needs_confirmation` items separately with URL and question, not as evaluat
 | # | Company | Role | Score | PDF | Recommended action |
 ```
 
+## Unconfirmed `[?]` rows
+
+`ingest-mcp-jobs.mjs` (the MCP job-search sweep, `modes/mcp-sources.md`) writes aggregator-sourced postings (FoundRole, aggregator hosts, unidentified employer) as `- [?] URL | Company | Role | ...` instead of `- [ ]`. The marker means the posting is UNCONFIRMED: per AGENTS.md → "Aggregator Listings -- Confirm at the Employer" it is not a real opening until located on the employer's own careers page/ATS.
+
+- **Pipeline mode skips `[?]` rows.** Do not extract, evaluate, report on, or tailor a CV for one, and do not count it in the pending total. Only `- [ ]` rows are processed.
+- To resolve a `[?]` row follow `modes/mcp-sources.md` → "Unconfirmed rows": found at the employer → replace it with the employer URL as `- [ ]` (aggregator URL kept as provenance); not found → stale, mark it in `data/scan-history.tsv` (and `set-status.mjs ... Discarded` if it has a tracker row); no employer ATS → leave `[?]`; employer unidentifiable → Block G signal, stop.
+- Known gap: the web inbox does not list `[?]` rows yet (documented follow-up), so reconcile them from this file, not from the web view.
+
 ## Format of pipeline.md
 
 ```markdown
@@ -62,6 +70,7 @@ List `needs_confirmation` items separately with URL and question, not as evaluat
 - [ ] https://jobs.ashbyhq.com/acme/791 | Acme Corp | Staff PM | note: curated shortlist
 - [ ] https://boards.greenhouse.io/acme/jobs/792 | Acme Corp | Backend Engineer | Remote (US) | posted: 2026-06-18
 - [!] https://private.url/job — Error: login required
+- [?] https://aggregator.example/jobs/55 | Acme AI | Applied AI Engineer | note: unconfirmed: aggregator listing, locate at employer
 
 ## Processed
 - [x] #143 | https://jobs.example.com/posting/789 | Acme Corp | AI PM | 4.2/5 | PDF ✅
