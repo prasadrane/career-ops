@@ -3399,19 +3399,20 @@ function guardStatusFor(code) {
 const KNOWN_FLAGS = [
   '--dry-run', '--verify', '--headed-fallback', '--throttle', '--rediscover-404',
   '--include-blacklisted', '--company', '--posted-after', '--posted-before',
-  '--since', '--quiet', '--json', '--help', '-h',
+  '--since', '--quiet', '--json', '--companies-from', '--help', '-h',
 ];
 
 // Flags whose space-separated value is the NEXT argv token (the `--flag=value`
 // form is self-contained and never needs this). --throttle is deliberately
 // excluded: only its bare and `--throttle=<ms>` forms are read below, so a
 // following token is never its value.
-const VALUE_FLAGS = ['--company', '--posted-after', '--posted-before', '--since'];
+const VALUE_FLAGS = ['--company', '--posted-after', '--posted-before', '--since', '--companies-from'];
 
 const USAGE = `Usage:
   node scan.mjs                              # scan all enabled companies
   node scan.mjs --dry-run                    # preview without writing files
   node scan.mjs --company Cohere             # scan a single company
+  node scan.mjs --companies-from data/target-companies.yml  # scan only the companies named in that list (Stage A: targets first)
   node scan.mjs --verify                     # Playwright-check each new URL; drop expired postings
   node scan.mjs --verify --headed-fallback   # retry anti-bot-blocked URLs in a headed browser (needs a display)
   node scan.mjs --verify --throttle          # jittered ~5-10s gap between checks (stay under rate limits)
@@ -3466,6 +3467,23 @@ async function main() {
     return value;
   };
   const filterCompany = requireValue('--company')?.toLowerCase() ?? null;
+  // --companies-from <yml>: restrict the board loop to companies named in a
+  // target list (`companies: [{name, ...}]`). Matching is by normalizeCompany
+  // over the display name and every official name ("Block (Square)" also
+  // matches a board named "Square"). Absent flag = no restriction.
+  let targetKeySet = null;
+  const companiesFrom = requireValue('--companies-from');
+  if (companiesFrom) {
+    try {
+      const { loadTargets, targetKeys } = await import('./lib/target-companies.mjs');
+      const list = loadTargets(companiesFrom);
+      if (list.length === 0) throw new Error('no companies found');
+      targetKeySet = new Set(list.flatMap(targetKeys));
+    } catch (err) {
+      console.error(`Error: --companies-from ${companiesFrom}: ${err.message}`);
+      process.exit(1);
+    }
+  }
   // --posted-after / --posted-before <YYYY-MM-DD>: absolute-date bounds on the
   // employer's real posting date (job.postedAt), gated against a typo since a
   // silently-ignored bound would look like "no jobs matched" instead of an error.
@@ -3584,6 +3602,7 @@ async function main() {
         continue;
       }
       if (filterCompany && !entry.name.toLowerCase().includes(filterCompany)) continue;
+      if (targetKeySet && !targetKeySet.has(normalizeCompany(entry.name))) continue;
 
       const resolved = resolveProvider(entry, providers);
       if (!resolved) {

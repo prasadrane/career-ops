@@ -19,6 +19,7 @@ table in `AGENTS.md` (mirrored in `CLAUDE.md`).
 | `auto-pipeline.md` | auto | Full automatic pipeline (evaluate + PDF + tracker) on a pasted JD/URL |
 | `pipeline.md` | `pipeline` | Process the URL inbox (`data/pipeline.md`) |
 | `scan.md` | `scan` | Portal scanner (job discovery) |
+| `run.md` | `run` | Ledger-driven full pipeline (target companies first, MCP sources, ingest, evaluate, scorecard); resumable by any agent |
 | `batch.md` | `batch` | Mass processing with headless workers |
 | `apply.md` | `apply` | Live application assistant (form filling; never submits) |
 | `pdf.md` | `pdf` | ATS-optimized PDF generation |

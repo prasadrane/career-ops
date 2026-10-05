@@ -407,6 +407,7 @@ A single-string `modes_dir` (today's default, ~90% of users) behaves exactly as 
 | Asks about application status | `tracker` |
 | Fills out application form | `apply` |
 | Searches for new offers | `scan` |
+| Wants to run (or resume) the whole pipeline end to end — target companies first, MCP sources, ingest, evaluation, scorecard | `run` — ledger-driven via `run-state.mjs`; resumable by any agent; never submits applications |
 | Processes pending URLs | `pipeline` |
 | Wants a fast first-pass filter before full evaluation | `triage` |
 | Batch processes offers | `batch` |
