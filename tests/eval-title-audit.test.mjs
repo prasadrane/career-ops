@@ -19,37 +19,34 @@ const TRACKER_HEAD = '# T\n\n| # | Date | Company | Role | Score | Status | PDF 
 const trow = (n, role, score, status, url) => `| ${n} | 2026-09-02 | Co | ${role} | ${score}/5 | ${status} | Y | — | n | ${url} |\n`;
 const PORTALS = 'title_filter:\n  positive: ["architect"]\n  negative: ["intern"]\n';
 
-test('dropped title sharing >=2 keywords with applied titles is sampled; unrelated is not', async () => {
+const drop = (root, rows) => w(root, 'data/eval/dropped-titles.tsv',
+  rows.map(([title, company = 'Co']) => ['2026-09-05', 'greenhouse', company, title, 'https://x.com/d'].join('\t')).join('\n') + '\n');
+
+test('logged dropped title sharing >=2 keywords with applied titles is sampled; unrelated is not', async () => {
   const root = mkRoot();
   try {
     w(root, 'portals.yml', PORTALS);
-    w(root, 'data/scan-history.tsv', [
-      hist('https://x.com/1', 'AI Solutions Architect'),
-      hist('https://x.com/2', 'Principal AI Solutions Engineer'),   // dropped by filter, shares ai+solutions
-      hist('https://x.com/3', 'Warehouse Associate'),               // dropped, unrelated
-      hist('https://x.com/4', 'Solutions Intern'),                   // dropped, shares only "solutions"
-    ].join('\n') + '\n');
+    w(root, 'data/scan-history.tsv', hist('https://x.com/1', 'AI Solutions Architect') + '\n');
+    drop(root, [['Principal AI Solutions Engineer'], ['Warehouse Associate'], ['Solutions Intern']]);
     w(root, 'data/applications.md', TRACKER_HEAD + trow(1, 'AI Solutions Architect', '4.5', 'Applied', 'https://x.com/1'));
     const r = await probe({ root, since: SINCE });
     assert.equal(r.phase, 'p2');
-    const titles = r.detail.recallSample.map((s) => s.title);
-    assert.deepEqual(titles, ['Principal AI Solutions Engineer']);
+    assert.deepEqual(r.detail.recallSample.map((s) => s.title), ['Principal AI Solutions Engineer']);
     assert.match(r.detail.recallSample[0].reason, /ai/);
     assert.match(r.detail.recallSample[0].reason, /solutions/);
     assert.equal(r.metrics.recallSample, 1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('explicit filtered_title rows are used as dropped titles', async () => {
+test('history rows alone (kept postings only) never produce a recall sample; no log -> recall insufficient-data', async () => {
   const root = mkRoot();
   try {
     w(root, 'portals.yml', PORTALS);
-    w(root, 'data/scan-history.tsv', [
-      hist('https://x.com/2', 'Staff AI Solutions Lead', 'filtered_title'),
-    ].join('\n') + '\n');
+    w(root, 'data/scan-history.tsv', hist('https://x.com/2', 'Principal AI Solutions Engineer', 'filtered_title') + '\n');
     w(root, 'data/applications.md', TRACKER_HEAD + trow(1, 'AI Solutions Architect', '4.5', 'Applied', 'https://x.com/1'));
     const r = await probe({ root, since: SINCE });
-    assert.deepEqual(r.detail.recallSample.map((s) => s.title), ['Staff AI Solutions Lead']);
+    assert.deepEqual(r.detail.recallSample, []);
+    assert.equal(r.metrics.recallSample, 'insufficient-data');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

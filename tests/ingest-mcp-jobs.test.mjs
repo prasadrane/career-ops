@@ -137,6 +137,31 @@ test('title and location filters from portals.yml are applied and counted', () =
   } finally { sb.done(); }
 });
 
+test('title-filtered rows sharing a profile keyword are logged as near-misses; unrelated ones are not; --dry-run logs nothing', () => {
+  const sb = sandbox({
+    portals: 'title_filter:\n  positive:\n    - "Solutions Architect"\n',
+    profile: 'target_roles:\n  primary:\n    - "Applied AI Engineer"\n',
+  });
+  try {
+    put(sb.raw, 'jobspipe-q1.json', { server: 'jobspipe', rows: [
+      { title: 'Applied AI Engineer', company: 'A', url: 'https://jobs.lever.co/a/1', location: 'Remote' },
+      { title: 'Warehouse Associate', company: 'B', url: 'https://jobs.lever.co/b/1', location: 'Remote' },
+      { title: 'Solutions Architect', company: 'C', url: 'https://jobs.lever.co/c/1', location: 'Remote' },
+    ] });
+    const logFile = join(sb.root, 'data', 'eval', 'dropped-titles.tsv');
+    const dry = ingest(sb.root, ['--run', RUN, '--dry-run']);
+    assert.equal(dry.code, 0, dry.err);
+    assert.equal(existsSync(logFile), false);
+    const r = ingest(sb.root);
+    assert.equal(r.code, 0, r.err);
+    assert.equal(r.json.filtered.title, 2);
+    assert.equal('droppedTitles' in r.json, false);
+    const rows = read(sb.root, 'data/eval/dropped-titles.tsv').trim().split('\n').map((l) => l.split('\t'));
+    assert.deepEqual(rows.map((c) => c[3]), ['Applied AI Engineer']);
+    assert.equal(rows[0][1], 'mcp-jobspipe');
+  } finally { sb.done(); }
+});
+
 test('cooldown window from profile.yml is applied and counted', () => {
   const today = new Date().toISOString().slice(0, 10);
   const sb = sandbox({ profile: `re_apply_windows:\n  "Acme AI":\n    last_apply_date: "${today}"\n    same_role_days: 30\n    applied_to: ["Applied AI Engineer"]\n` });

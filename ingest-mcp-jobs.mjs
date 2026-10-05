@@ -74,6 +74,7 @@ import {
 import { buildTitleFilter } from './title-keywords.mjs';
 import { isAggregatorUrl } from './url-key.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
+import { recordDroppedTitle } from './lib/eval/_dropped-titles.mjs';
 import { withPipelineLock } from './pipeline-lock.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { flagValue, hasFlag, validateFlags } from './lib/cli-flags.mjs';
@@ -212,7 +213,7 @@ export function plan(jobs, config, { today }) {
 
   for (const { job, aggregator } of ordered) {
     if (blacklist.size > 0 && findBlacklistEntry(blacklist, job.company, job.url)) { summary.filtered.blacklist++; continue; }
-    if (!titleFilter(job.title)) { summary.filtered.title++; continue; }
+    if (!titleFilter(job.title)) { summary.filtered.title++; (summary.droppedTitles ??= []).push(job); continue; }
     if (!locationFilter(job.location, job.url, job.title)) { summary.filtered.location++; continue; }
 
     const dedupUrl = normalizeUrlForDedup(job.url);
@@ -284,7 +285,13 @@ export async function ingestRun({ runId, dryRun = false }) {
   const date = localToday();
   const { summary, live, unconfirmed } = plan(jobs, config, { today: date });
 
+  const droppedTitles = summary.droppedTitles ?? [];
+  delete summary.droppedTitles;   // not part of the CLI's JSON summary
+
   if (!dryRun) {
+    for (const j of droppedTitles) {
+      await recordDroppedTitle({ root: getCareerOpsRoot(), title: j.title, company: j.company, portal: j.source, url: j.url, date });
+    }
     if (live.length > 0) await appendToScanHistory(live, date, 'added');
     if (unconfirmed.length > 0) await appendToScanHistory(unconfirmed, date, 'unconfirmed');
     if (live.length + unconfirmed.length > 0) await appendToPipeline([...live, ...unconfirmed]);

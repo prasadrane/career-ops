@@ -77,6 +77,7 @@ import { printScanSummaryHeader } from './lib/scan-summary-marker.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { promoteKnownFragmentIdentity } from './url-key.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
+import { recordDroppedTitle } from './lib/eval/_dropped-titles.mjs';
 
 const CODE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = getCareerOpsRoot();
@@ -3930,6 +3931,8 @@ async function main() {
         }
         if (failedField === 'title') {
           totalFilteredTitle++;
+          // Near-miss log for the P2 recall probe (never throws; CAREER_OPS_NO_EVAL_LOG=1 disables).
+          await recordDroppedTitle({ root: DATA_ROOT, title: job.title, company: job.company || company.name, portal: provider.id, url: job.url, date });
           continue;
         }
         if (failedField !== null) {
