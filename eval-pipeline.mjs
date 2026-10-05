@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // eval-pipeline.mjs — pipeline scorecard: one verdict per phase (p1..p6).
 //
-//   node eval-pipeline.mjs [--phase p1,p3] [--json|--summary] [--since 30d] [--no-record]
+//   node eval-pipeline.mjs [--phase p1,p3] [--json|--summary] [--since 30d] [--no-record] [--propose]
+//   node eval-pipeline.mjs label <report#> --score X --archetype Y [--note ...] [--force]
 //
-// Probes are discovered by scanning lib/eval/*.mjs (excluding verdict.mjs and
+// Probes are discovered by scanning lib/eval/*.mjs (excluding NON_PROBE_FILES and
 // files starting with `_`); each default-exports
 //   async probe({ root, since }) => { phase, verdict, metrics, findings }
 // and is named lib/eval/<phase>-<name>.mjs. The phase id comes from the
@@ -13,6 +14,8 @@
 // CAREER_OPS_EVAL_PROBE_DIR overrides the probe dir (tests).
 // Every run appends one row per phase to {DATA_ROOT}/data/eval/runs.tsv
 // (header `timestamp\tphase\tverdict\tmetrics_json`) unless --no-record.
+// --propose also writes data/eval/proposals.md (suggest-only items from the scorecard; default off).
+// `label` upserts one line in data/eval/golden-user.jsonl (the P4 probe's user-labelled golden set).
 // Exit codes: 0 ok (verdicts are advisory), 1 usage error or unattributable probe failure.
 
 import { existsSync, mkdirSync, readdirSync, appendFileSync, writeFileSync } from 'fs';
@@ -22,11 +25,15 @@ import { getCareerOpsRoot } from './path-resolver.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { flagValue, hasFlag, validateFlags } from './lib/cli-flags.mjs';
 import { rollup } from './lib/eval/verdict.mjs';
+import { writeProposals } from './lib/eval/proposals.mjs';
+import { labelGolden } from './lib/eval/golden-label.mjs';
 
 export const PHASES = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'];
 const DEFAULT_SINCE_DAYS = 30;
 const EVAL_DIR = join(dirname(fileURLToPath(import.meta.url)), 'lib', 'eval');
-const USAGE = 'usage: node eval-pipeline.mjs [--phase p1,p3] [--json|--summary] [--since 30d] [--no-record]';
+const NON_PROBE_FILES = new Set(['verdict.mjs', 'proposals.mjs', 'golden-label.mjs']);
+const USAGE = 'usage: node eval-pipeline.mjs [--phase p1,p3] [--json|--summary] [--since 30d] [--no-record] [--propose]\n       node eval-pipeline.mjs label <report#> --score X --archetype Y [--note ...] [--force]';
+const LABEL_USAGE = 'usage: node eval-pipeline.mjs label <report#> --score X --archetype Y [--note ...] [--force]';
 const RUNS_HEADER = 'timestamp\tphase\tverdict\tmetrics_json\n';
 
 /** "30d" or "30" -> days (positive integer) or null. */
@@ -39,7 +46,7 @@ export function parseSince(raw) {
 export function probeFiles(dir = EVAL_DIR) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
-    .filter((f) => f.endsWith('.mjs') && f !== 'verdict.mjs' && !f.startsWith('_'))
+    .filter((f) => f.endsWith('.mjs') && !NON_PROBE_FILES.has(f) && !f.startsWith('_'))
     .sort();
 }
 
@@ -93,8 +100,31 @@ function renderSummary(result) {
   return lines.join('\n');
 }
 
+/** `label <report#> --score X --archetype Y [--note ...] [--force]` */
+function labelMain(argv) {
+  validateFlags(argv, ['--score', '--archetype', '--note', '--force', '--help'], LABEL_USAGE,
+    { valueFlags: ['--score', '--archetype', '--note'], requireOperand: true });
+  const valueFlags = ['--score', '--archetype', '--note'];
+  const positional = argv.filter((a, i) => !a.startsWith('--') && !valueFlags.includes(argv[i - 1]));
+  if (positional.length !== 1) { console.error(`eval-pipeline label: expected exactly one report number
+${LABEL_USAGE}`); return 1; }
+  try {
+    const { file, entry, updated } = labelGolden({
+      root: getCareerOpsRoot(), report: positional[0], score: flagValue(argv, '--score'),
+      archetype: flagValue(argv, '--archetype'), note: flagValue(argv, '--note') ?? '', force: hasFlag(argv, '--force'),
+    });
+    console.log(`${updated ? 'updated' : 'added'} label for report ${entry.report} (score ${entry.score}, archetype "${entry.archetype}") in ${file}`);
+    return 0;
+  } catch (err) {
+    console.error(`eval-pipeline label: ${err.message}
+${LABEL_USAGE}`);
+    return 1;
+  }
+}
+
 export async function main(argv) {
-  validateFlags(argv, ['--phase', '--json', '--summary', '--since', '--no-record', '--help'], USAGE,
+  if (argv[0] === 'label') return labelMain(argv.slice(1));
+  validateFlags(argv, ['--phase', '--json', '--summary', '--since', '--no-record', '--propose', '--help'], USAGE,
     { valueFlags: ['--phase', '--since'], requireOperand: true });
 
   const days = parseSince(flagValue(argv, '--since'));
@@ -119,8 +149,10 @@ export async function main(argv) {
   const result = { generated: now.toISOString(), since: since.toISOString(), phases, overall: rollup(phases) };
 
   if (!hasFlag(argv, '--no-record')) record(root, result.generated, phases);
+  const proposalsFile = hasFlag(argv, '--propose') ? writeProposals(root, phases, result.generated) : null;
 
   console.log(hasFlag(argv, '--json') ? JSON.stringify(result, null, 2) : renderSummary(result));
+  if (proposalsFile) console.error(`eval-pipeline: proposals written to ${proposalsFile} (suggest-only)`);
   for (const u of unattributed) console.error(`eval-pipeline: probe ${u.file} failed: ${u.message}`);
   return unattributed.length ? 1 : 0;
 }
