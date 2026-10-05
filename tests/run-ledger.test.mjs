@@ -155,3 +155,14 @@ test('ownership: stale takeover blocks late calls from the old owner', () => {
   // owner can complete its own task
   assert.equal(complete(hb, 'T001', { now: T0 + 24 * MIN, agent: 'B', attempt: 2 })[0].status, 'completed');
 });
+
+test('initRun interpolates {run_id}/{n}/{companies} in every command', () => {
+  const { tasks } = initRun({
+    runId: 'R1', now: T0, enabledServers: ['s'], targetChunks: [['A']], mcpQueries: [{ id: 'q' }],
+  });
+  for (const t of tasks) {
+    assert.ok(!t.command.includes('{run_id}') && !t.command.includes('{n}'), `${t.stage}: ${t.command}`);
+  }
+  assert.match(tasks.find((t) => t.stage === 'C1').command, /--run R1/);
+  assert.match(tasks.find((t) => t.stage === 'A3').command, /\[A\]/);
+});

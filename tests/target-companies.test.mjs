@@ -76,10 +76,12 @@ function scanWith(extraArgs) {
     mkdirSync(join(dir, 'data'), { recursive: true });
     writeFileSync(join(dir, 'data', 'pipeline.md'), '# Pipeline\n\n');
     writeFileSync(join(dir, 'targets.yml'), 'companies:\n  - { name: "Block (Square)", tier: general }\n  - { name: Alpha Corp, tier: dotnet }\n');
+    writeFileSync(join(dir, 'nomatch.yml'), 'companies:\n  - { name: Nobody Inc }\n');
+    writeFileSync(join(dir, 'partial.yml'), 'companies:\n  - { name: Alpha Corp }\n  - { name: Meta }\n');
     const entry = (n) => `  - name: ${n}\n    careers_url: https://example.invalid/${n}\n    parser:\n      command: node\n      script: tests/fixtures/company-board.mjs\n      args: ["{company}"]\n`;
     const portals = join(dir, 'portals.yml');
     writeFileSync(portals, `title_filter:\n  positive: ["Platform"]\ntracked_companies:\n${entry('Alpha Corp')}${entry('Square')}${entry('Gamma')}`);
-    const r = spawnSync(process.execPath, [join(ROOT, 'scan.mjs'), '--dry-run', '--json', ...extraArgs.map((a) => a === '@T' ? join(dir, 'targets.yml') : a)], {
+    const r = spawnSync(process.execPath, [join(ROOT, 'scan.mjs'), '--dry-run', '--json', ...extraArgs.map((a) => a === '@T' ? join(dir, 'targets.yml') : a === '@N' ? join(dir, 'nomatch.yml') : a === '@P' ? join(dir, 'partial.yml') : a)], {
       cwd: dir, encoding: 'utf-8',
       env: { ...process.env, CAREER_OPS_ROOT: dir, CAREER_OPS_PORTALS: portals },
     });
@@ -107,4 +109,32 @@ test('scan --companies-from with a missing file fails loudly', () => {
   const { r, out } = scanWith(['--companies-from', 'no-such.yml']);
   assert.notEqual(r.status, 0);
   assert.match(out, /companies-from/);
+});
+
+test('scan --companies-from matching nothing exits 1 with a clear message', () => {
+  const { r, out } = scanWith(['--companies-from', '@N']);
+  assert.equal(r.status, 1, out);
+  assert.match(out, /--companies-from matched no tracked_companies \(run discover-ats --write first\)/);
+});
+
+test('scan --companies-from partial match: exit 0, unmatched listed in receipt', () => {
+  const { r, out } = scanWith(['--companies-from', '@P']);
+  assert.equal(r.status, 0, out);
+  const receipt = JSON.parse(r.stdout.trim().split('\n').filter((l) => l.startsWith('{')).pop());
+  assert.deepEqual(receipt.matched_targets, ['Alpha Corp']);
+  assert.deepEqual(receipt.unmatched_targets, ['Meta']);
+  assert.match(out, /Targets unmatched:\s+1 of 2/);
+});
+
+test('chunk: 20/21 boundary, size guard, case-insensitive dedupe of primaries', () => {
+  const mk = (n) => Array.from({ length: n }, (_, i) => ({ name: `C${i}`, searchNames: [`C${i}`] }));
+  assert.deepEqual(chunk(mk(20)).map((c) => c.length), [20]);
+  assert.deepEqual(chunk(mk(21)).map((c) => c.length), [20, 1]);
+  assert.deepEqual(chunk(mk(3), 0).map((c) => c.length), [1, 1, 1]);
+  const dup = [
+    { name: 'Meta', searchNames: ['Meta'] },
+    { name: 'Meta (Facebook)', searchNames: ['Meta', 'Facebook'] },
+    { name: 'META', searchNames: ['META'] },
+  ];
+  assert.deepEqual(chunk(dup), [['Meta']]);
 });

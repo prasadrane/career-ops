@@ -3472,12 +3472,15 @@ async function main() {
   // over the display name and every official name ("Block (Square)" also
   // matches a board named "Square"). Absent flag = no restriction.
   let targetKeySet = null;
+  let targetList = [];
+  const matchedEntryKeys = new Set();
   const companiesFrom = requireValue('--companies-from');
   if (companiesFrom) {
     try {
       const { loadTargets, targetKeys } = await import('./lib/target-companies.mjs');
       const list = loadTargets(companiesFrom);
       if (list.length === 0) throw new Error('no companies found');
+      targetList = list;
       targetKeySet = new Set(list.flatMap(targetKeys));
     } catch (err) {
       console.error(`Error: --companies-from ${companiesFrom}: ${err.message}`);
@@ -3602,7 +3605,11 @@ async function main() {
         continue;
       }
       if (filterCompany && !entry.name.toLowerCase().includes(filterCompany)) continue;
-      if (targetKeySet && !targetKeySet.has(normalizeCompany(entry.name))) continue;
+      if (targetKeySet) {
+        const k = normalizeCompany(entry.name);
+        if (!targetKeySet.has(k)) continue;
+        matchedEntryKeys.add(k);
+      }
 
       const resolved = resolveProvider(entry, providers);
       if (!resolved) {
@@ -3629,6 +3636,22 @@ async function main() {
 
   resolveEntries(companies);
   resolveEntries(boards, { isBoard: true });
+
+  // --companies-from: which listed targets have a tracked entry. Unmatched
+  // targets are expected (custom-site companies); matching NONE is fatal, so a
+  // ledger task never completes having scanned nothing.
+  let matchedTargetNames = [];
+  let unmatchedTargetNames = [];
+  if (targetKeySet) {
+    const { targetKeys } = await import('./lib/target-companies.mjs');
+    for (const t of targetList) {
+      (targetKeys(t).some((k) => matchedEntryKeys.has(k)) ? matchedTargetNames : unmatchedTargetNames).push(t.name);
+    }
+    if (matchedEntryKeys.size === 0) {
+      console.error('Error: --companies-from matched no tracked_companies (run discover-ats --write first)');
+      process.exit(1);
+    }
+  }
 
   // #3438. Startup checks for field_filters / filter_on, before any network
   // call. scan.mjs does not run validatePortalsConfig, so every rule that
@@ -4111,6 +4134,7 @@ async function main() {
   const summaryCompanies = targets.filter(t => !t._isBoard).length;
   const summaryBoards = targets.filter(t => t._isBoard).length;
   console.log(`Companies scanned:     ${summaryCompanies}`);
+  if (targetKeySet) console.log(`Targets unmatched:     ${unmatchedTargetNames.length} of ${targetList.length} (no tracked entry)`);
   if (summaryBoards > 0) console.log(`Job boards scanned:    ${summaryBoards}`);
   console.log(`Total jobs found:      ${totalFound}`);
   if (config.title_filter || totalFilteredTitle > 0) {
@@ -4385,6 +4409,7 @@ async function main() {
       version: 'careerops.scan.receipt@1',
       date,
       scanned: targets.length,
+      ...(targetKeySet ? { matched_targets: matchedTargetNames, unmatched_targets: unmatchedTargetNames } : {}),
       skipped: skippedCount,
       found: totalFound,
       filtered,
