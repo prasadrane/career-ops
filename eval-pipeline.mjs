@@ -8,11 +8,12 @@
 //   async probe({ root, since }) => { phase, verdict, metrics, findings }
 // and is named lib/eval/<phase>-<name>.mjs. The phase id comes from the
 // returned `phase`. A phase with no probe reports `insufficient-data` with the
-// finding "probe not installed". A probe that throws reports
-// `insufficient-data` with the error as a finding (the scorecard never crashes).
+// finding "probe not installed". A probe that throws makes its phase `fail`
+// (never a silent pass); a throwing probe with no pN- prefix exits 1.
+// CAREER_OPS_EVAL_PROBE_DIR overrides the probe dir (tests).
 // Every run appends one row per phase to {DATA_ROOT}/data/eval/runs.tsv
 // (header `timestamp\tphase\tverdict\tmetrics_json`) unless --no-record.
-// Exit codes: 0 ok (verdicts are advisory), 1 usage error.
+// Exit codes: 0 ok (verdicts are advisory), 1 usage error or unattributable probe failure.
 
 import { existsSync, mkdirSync, readdirSync, appendFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
@@ -42,25 +43,34 @@ export function probeFiles(dir = EVAL_DIR) {
     .sort();
 }
 
-async function runProbes(ctx, wanted) {
+/**
+ * Runs every discovered probe. Returns { phases, unattributed }.
+ * A throwing probe (or one returning an unknown phase) makes its phase `fail`
+ * so rollup surfaces it; one with no `pN-` file prefix cannot be attributed and
+ * is returned in `unattributed` ({file, message}) for the caller to exit 1.
+ */
+export async function runProbes(ctx, wanted, dir = EVAL_DIR) {
   const byPhase = new Map();
-  for (const f of probeFiles()) {
+  const unattributed = [];
+  for (const f of probeFiles(dir)) {
     const m = /^(p[1-6])-/.exec(f);
     try {
-      const mod = await import(pathToFileURL(join(EVAL_DIR, f)).href);
+      const mod = await import(pathToFileURL(join(dir, f)).href);
       const res = await mod.default(ctx);
       const phase = res?.phase ?? m?.[1];
-      if (!PHASES.includes(phase)) throw new Error(`probe ${f} returned unknown phase "${phase}"`);
+      if (!PHASES.includes(phase)) throw new Error(`unknown phase "${phase}"`);
       byPhase.set(phase, { metrics: {}, findings: [], ...res, phase });
     } catch (err) {
-      const phase = m?.[1];
-      if (phase) {
-        byPhase.set(phase, { phase, verdict: 'insufficient-data', metrics: {}, findings: [`probe ${f} failed: ${err.message}`] });
+      if (m) {
+        byPhase.set(m[1], { phase: m[1], verdict: 'fail', metrics: {}, findings: [`probe ${f} failed: ${err.message}`] });
+      } else {
+        unattributed.push({ file: f, message: err.message });
       }
     }
   }
-  return wanted.map((phase) => byPhase.get(phase)
+  const phases = wanted.map((phase) => byPhase.get(phase)
     ?? { phase, verdict: 'insufficient-data', metrics: {}, findings: ['probe not installed'] });
+  return { phases, unattributed };
 }
 
 function record(root, timestamp, phases) {
@@ -105,13 +115,14 @@ export async function main(argv) {
   const root = getCareerOpsRoot();
   const now = new Date();
   const since = new Date(now.getTime() - days * 86_400_000);
-  const phases = await runProbes({ root, since }, wanted);
+  const { phases, unattributed } = await runProbes({ root, since }, wanted, process.env.CAREER_OPS_EVAL_PROBE_DIR || EVAL_DIR);
   const result = { generated: now.toISOString(), since: since.toISOString(), phases, overall: rollup(phases) };
 
   if (!hasFlag(argv, '--no-record')) record(root, result.generated, phases);
 
   console.log(hasFlag(argv, '--json') ? JSON.stringify(result, null, 2) : renderSummary(result));
-  return 0;
+  for (const u of unattributed) console.error(`eval-pipeline: probe ${u.file} failed: ${u.message}`);
+  return unattributed.length ? 1 : 0;
 }
 
 if (isMainModule(import.meta.url)) {
