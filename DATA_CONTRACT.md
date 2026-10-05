@@ -26,6 +26,8 @@ These files contain your personal data, customizations, and work product. Update
 | `data/.hired-share-state.json` | Hired Wall ask-state (asked/shared/later/never per hire) — the anti-nag memory; never committed, never read by anything but `hired-share.mjs` |
 | `data/intake-state.json` | Fingerprints of already-ingested intake sources (written by `node intake.mjs --commit`; makes re-runs propose only new material — safe to delete, next intake re-proposes everything) |
 | `portals.yml` | Your customized company list |
+| `data/target-companies.yml` | Your target company list (scanned first by the pipeline run; read by `run-state.mjs init`) |
+| `data/runs/*` | Resumable pipeline run ledgers (`run.json`, `tasks.tsv`; written only by `run-state.mjs`, kept for audit — safe to delete finished runs) |
 | `config/plugins.yml` | Your plugin activation toggles (opt-in; seeded from `config/plugins.example.yml`) |
 | `opencode.json` | Your OpenCode project config (MCP servers, model, formatter, LSP) — gitignored, copy `opencode.example.json` to start |
 | `plugins.local/` | Your own / private plugins (never auto-updated) |

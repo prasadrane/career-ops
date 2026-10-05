@@ -86,6 +86,10 @@ If `{"status": "update-available", "local": ..., "remote": ..., "changelog": ...
 
 If yes → `node update-system.mjs apply --confirm`. If no → `node update-system.mjs dismiss --version {remote}`: that quiets v{remote} only, and a newer release asks again. Every other status (`up-to-date`, `dismissed`, `offline`, `no-remote-version`, `worktree-without-main`) → say nothing. The user can check anytime, even after saying no ("check for updates" / "update career-ops") → `node update-system.mjs check --force`. To follow every merge on `main` instead of releases: `node update-system.mjs apply --channel main --confirm`. Rollback: `node update-system.mjs rollback`. From a linked git worktree, all of these run in the checkout that has `main` checked out, so the update lands on `main`; afterwards suggest `git merge main` in the worktree.
 
+## Unfinished Run Check
+
+On the first message of a session, after the update check, run `node run-state.mjs status --json`. If exit code is 10, ask the user whether to continue, restart, or abort the unfinished run; never continue it without their answer.
+
 ## What is career-ops
 
 AI-powered, CLI-agnostic job search automation: pipeline tracking, offer evaluation, CV generation, portal scanning, batch processing. Runs on any AI coding CLI following the [open agent skill standard](https://agentskills.io) (Claude Code, Cursor, Codex, OpenCode, Pi, Qwen, Copilot, Kimi, Antigravity CLI, Grok Build CLI). Legacy Gemini API evaluation remains via `gemini-eval.mjs`.
@@ -119,6 +123,7 @@ AI-powered, CLI-agnostic job search automation: pipeline tracking, offer evaluat
 | `data/salary-observations.tsv` | Append-only salary observation log (user layer) |
 | `data/assessments.tsv` | Append-only skills-assessment log (user layer, created on first `add`) |
 | `portals.yml` | Query and company config |
+| `run-state.mjs` | Resumable, agent-agnostic pipeline run ledger under `data/runs/{run-id}/` (`run.json`, `tasks.tsv`); `init`/`status`/`claim`/`heartbeat`/`complete`/`fail`/`skip`/`abort` with `--json`, `--agent`, `--run`, `--no-mcp`; claims are lock-protected, a task `in_progress` with no heartbeat for 20 min is stale and re-claimable; `status` exits 10 when a running run has unfinished tasks (logic in `lib/run-ledger.mjs`) |
 | `templates/cv-template.html` | HTML template for CVs |
 | `templates/cv-template.tex` | LaTeX/Overleaf template for CVs |
 | `article-digest.md` | Compact proof points from portfolio (optional) |
