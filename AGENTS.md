@@ -124,6 +124,7 @@ AI-powered, CLI-agnostic job search automation: pipeline tracking, offer evaluat
 | `data/assessments.tsv` | Append-only skills-assessment log (user layer, created on first `add`) |
 | `portals.yml` | Query and company config |
 | `run-state.mjs` | Resumable, agent-agnostic pipeline run ledger under `data/runs/{run-id}/` (`run.json`, `tasks.tsv`); `init`/`status`/`claim`/`heartbeat`/`complete`/`fail`/`skip`/`abort` with `--json`, `--agent`, `--run`, `--no-mcp`; claims are lock-protected, a task `in_progress` with no heartbeat for 20 min is stale and re-claimable; `status` exits 10 when a running run has unfinished tasks (logic in `lib/run-ledger.mjs`) |
+| `eval-pipeline.mjs` | Pipeline scorecard: one verdict (`pass`/`warn`/`fail`/`insufficient-data`) per phase p1..p6 (sources, search filter, liveness/dedup, scoring, tailoring, outcomes); `--phase`, `--json`, `--summary`, `--since 30d`, `--no-record`; probes auto-discovered from `lib/eval/<phase>-<name>.mjs` (a phase with no probe reports `insufficient-data`); appends `data/eval/runs.tsv`; advisory only, never edits scoring (shared helpers in `lib/eval/verdict.mjs`) |
 | `templates/cv-template.html` | HTML template for CVs |
 | `templates/cv-template.tex` | LaTeX/Overleaf template for CVs |
 | `article-digest.md` | Compact proof points from portfolio (optional) |
