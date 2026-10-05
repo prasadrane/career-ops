@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import probe from '../lib/eval/p5-tailor-delta.mjs';
@@ -134,5 +134,55 @@ test('artifact whose report has no keywords is skipped, not counted', async () =
     const r = await probe({ root, since: SINCE });
     assert.equal(r.metrics.artifacts, 4);
     assert.equal(r.verdict, 'insufficient-data');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('payload path only maps a real .html/.htm extension (dot escaped): no decoy payload from a dotless name', async () => {
+  const root = mkRoot();
+  try {
+    many(root, 5, TAILORED_UP);
+    // index points report 001 at a dotless file; "xhtml" must NOT be rewritten to ".json" (unescaped-dot bug)
+    w(root, 'output/cv-jane-co1-xhtml', `<html><body>${TAILORED_UP}</body></html>`);
+    w(root, 'output/cv-jane-co1-.json', JSON.stringify({ experience: [{ company: 'Acme', role: 'Engineer', dates: '2020-2024' }] }));
+    const idx = readFileSync(join(root, 'data', 'pdf-index.tsv'), 'utf-8')
+      .replace('output/cv-jane-co1.html', 'output/cv-jane-co1-xhtml');
+    w(root, 'data/pdf-index.tsv', idx);
+    const r = await probe({ root, since: SINCE });
+    const a = r.detail.artifacts.find((x) => x.report === '001' || Number(x.report) === 1);
+    assert.ok(a, 'artifact for report 001 scored');
+    assert.equal(a.payload.verified, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('artifacts are deduped by report number (newest kept) before the cap of 10', async () => {
+  const root = mkRoot();
+  try {
+    many(root, 5, TAILORED_UP);
+    // report 001 gets an OLDER second artifact with poor coverage; it must not count or win
+    w(root, 'output/cv-jane-co1-old.html', `<html><body>${TAILORED_60}</body></html>`);
+    const idx = readFileSync(join(root, 'data', 'pdf-index.tsv'), 'utf-8')
+      + '001\toutput/cv-jane-co1-old.pdf\toutput/cv-jane-co1-old.html\tletter\t2026-08-15\tcv\n';
+    w(root, 'data/pdf-index.tsv', idx);
+    const r = await probe({ root, since: SINCE });
+    assert.equal(r.metrics.artifacts, 5);
+    const a = r.detail.artifacts.find((x) => Number(x.report) === 1);
+    assert.match(a.html, /cv-jane-co1\.html$/);
+    assert.equal(r.metrics.coverageDelta, 30);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('cap of 10 applies to distinct reports, not to duplicate rows', async () => {
+  const root = mkRoot();
+  try {
+    many(root, 6, TAILORED_UP);
+    let idx = readFileSync(join(root, 'data', 'pdf-index.tsv'), 'utf-8');
+    for (let i = 1; i <= 6; i++) {
+      const slug = `co${i}`;
+      w(root, `output/cv-jane-${slug}-v0.html`, `<html><body>${TAILORED_UP}</body></html>`);
+      idx += `${String(i).padStart(3, '0')}\toutput/cv-jane-${slug}-v0.pdf\toutput/cv-jane-${slug}-v0.html\tletter\t2026-07-0${i}\tcv\n`;
+    }
+    w(root, 'data/pdf-index.tsv', idx);
+    const r = await probe({ root, since: SINCE });
+    assert.equal(r.metrics.artifacts, 6);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
