@@ -1,0 +1,29 @@
+{
+  "server": "foundrole",
+  "query_id": "target-companies-chunk-1",
+  "data": [
+    {
+      "id": "fr_77",
+      "resultItemId": "item_3",
+      "title": "Forward Deployed Engineer",
+      "company": "Zeta Systems",
+      "location": "Remote, USA",
+      "url": "https://example-board.test/jobs/77?token=keep-me&src=fr",
+      "posted_at": "2026-10-02"
+    },
+    {
+      "id": "fr_78",
+      "resultItemId": "item_4",
+      "title": "Applied AI Engineer",
+      "company": "Acme AI",
+      "location": "Remote, US",
+      "url": "https://example-board.test/jobs/78?token=keep-me-too"
+    },
+    {
+      "id": "fr_79",
+      "resultItemId": "item_5",
+      "company": "Missing Title Inc",
+      "url": "https://example-board.test/jobs/79"
+    }
+  ]
+}

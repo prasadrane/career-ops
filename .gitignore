@@ -258,3 +258,6 @@ documents/*
 # PII (e.g. cv/jane-doe-master-cv.pdf). #1723
 data/intake-state.json
 data/agent-inbox.md
+
+# MCP job-search raw results (agent-saved, user layer)
+data/mcp-raw/

@@ -28,6 +28,7 @@ These files contain your personal data, customizations, and work product. Update
 | `portals.yml` | Your customized company list |
 | `data/target-companies.yml` | Your target company list (scanned first by the pipeline run; read by `run-state.mjs init`) |
 | `data/runs/*` | Resumable pipeline run ledgers (`run.json`, `tasks.tsv`; written only by `run-state.mjs`, kept for audit — safe to delete finished runs) |
+| `data/mcp-raw/{run-id}/*.json` | Raw MCP job-search results the agent saved (untrusted data; read only by `ingest-mcp-jobs.mjs`, gitignored, safe to delete after ingestion) |
 | `config/plugins.yml` | Your plugin activation toggles (opt-in; seeded from `config/plugins.example.yml`) |
 | `opencode.json` | Your OpenCode project config (MCP servers, model, formatter, LSP) — gitignored, copy `opencode.example.json` to start |
 | `plugins.local/` | Your own / private plugins (never auto-updated) |

@@ -1840,6 +1840,26 @@ search_queries:
 #     provider: lever
 #     aggregator: true
 
+# -- MCP job-search sources (optional, agent-driven) --
+# Read by the agent (not by scan.mjs, which ignores this key), never by Node: MCP
+# servers are only callable from an agent session. The agent runs each query on every
+# enabled server, saves the raw JSON to data/mcp-raw/{run-id}/{server}-{query_id}.json
+# and then runs `node ingest-mcp-jobs.mjs --run {run-id}`, which applies the same
+# title_filter / location_filter / blacklist / cooldown / dedup as scan.mjs and tags
+# every row with its source (portal `mcp-jobspipe` | `mcp-jobdatalake` | `mcp-foundrole`)
+# and `query_id`. Aggregator results are recorded as UNCONFIRMED until located at the
+# employer. `budget` caps tool calls per server per run.
+mcp_sources:
+  enabled: [jobspipe, jobdatalake, foundrole]
+  queries:
+    - id: agentic-ai-us-remote
+      titles: ["AI Solutions Architect", "Forward Deployed Engineer", "Applied AI Engineer"]
+      remote: true
+      countries: [US]
+      max_age_days: 14
+      min_salary_usd: 150000
+  budget: { jobspipe_calls_per_run: 20, jobdatalake_calls_per_run: 40, foundrole_calls_per_run: 15 }
+
 tracked_companies:
 
   - name: YMCA of Greater Toronto

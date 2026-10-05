@@ -1521,7 +1521,7 @@ export function shouldDedupScanHistoryRow({ firstSeen, status = 'added' }, { rec
   return ageDays < recheckAfterDays;
 }
 
-function scanHistoryPolicy(config = {}) {
+export function scanHistoryPolicy(config = {}) {
   const raw = config.scan_history?.recheck_after_days;
   const parsed = Number.parseInt(raw, 10);
   return {
@@ -2420,7 +2420,7 @@ export function matchesSeenCompanyRole({ key, baseKey, seen, requisitions, locat
     && !isDistinctRequisition(locatedRequisitions.get(baseKey), candidate);
 }
 
-function recordRequisition(requisitionsByBase, baseKey, requisitions) {
+export function recordRequisition(requisitionsByBase, baseKey, requisitions) {
   let seen = requisitionsByBase.get(baseKey);
   if (!seen) requisitionsByBase.set(baseKey, (seen = new Set()));
   const forms = toRequisitionForms(requisitions);
@@ -2679,7 +2679,12 @@ export function formatPipelineOffer(offer) {
   // loadSeenUrls dedups on the URL and ignores trailing columns (backward-compatible).
   const location = typeof offer.location === 'string' ? sanitizeMarkdownField(offer.location) : '';
   const compensation = formatCompensation(offer.salary);
-  const base = `- [ ] ${url} | ${company} | ${title}`;
+  // `unconfirmed` (ingest-mcp-jobs.mjs, aggregator listings): `[?]` instead of
+  // `[ ]`, so the row is queued for employer confirmation but is not an
+  // evaluable pending item and no dedup gate (which read only ` `/`x`) treats
+  // it as surfaced. Absent flag = byte-identical `- [ ]` output.
+  const box = offer.unconfirmed === true ? '[?]' : '[ ]';
+  const base = `- ${box} ${url} | ${company} | ${title}`;
   let line = base;
   if (compensation) line = `${base} | ${location} | ${compensation}`;
   else if (location) line = `${base} | ${location}`;
@@ -2728,7 +2733,13 @@ export function formatScanHistoryRow(offer, date, status = 'added') {
     // index-based readers (fingerprint@7, postedAt@8) are unaffected; a clean
     // posting or a scan without trust_filter leaves both empty.
     trustIsFlagged(offer) ? String(offer.trustScore) : '',
-    trustIsFlagged(offer) ? trustFlagList(offer).join(',') : '',
+    // `alsoSeen` (ingest-mcp-jobs.mjs): other sources that returned the same
+    // posting, credited as `also_seen:{portal}` tokens in this column. Absent
+    // = unchanged output.
+    [
+      ...(trustIsFlagged(offer) ? trustFlagList(offer) : []),
+      ...(Array.isArray(offer.alsoSeen) ? offer.alsoSeen.filter((x) => typeof x === 'string' && x).map((x) => `also_seen:${x}`) : []),
+    ].join(','),
     // Normalized company key (#2093): the canonical company form shared across
     // the tracker (normalizeCompanyName — lowercased, punctuation/whitespace
     // folded, trailing legal-entity suffixes stripped) so "Acme Inc.",
@@ -2740,6 +2751,11 @@ export function formatScanHistoryRow(offer, date, status = 'added') {
     // cols) are unaffected, and older rows that lack it are tolerated by
     // consumers normalizing the raw name on the fly.
     normalizeCompanyName(offer.company || ''),
+    // query_id: appended trailing col 13, written ONLY when the offer carries
+    // one (ingest-mcp-jobs.mjs). Rows from every other writer keep their 12
+    // columns - the same "older rows simply lack the column" convention as
+    // normalized_company above.
+    ...(offer.queryId ? [offer.queryId] : []),
   ].map(sanitizeTsvField).join('\t');
 }
 
@@ -2903,7 +2919,7 @@ export async function appendToScanHistory(offers, date, status = 'added') {
     // outcomes (`skipped_expired`, etc.) without the legacy `(expired)` suffix.
     if (!existsSync(SCAN_HISTORY_PATH)) {
       mkdirSync(path.dirname(SCAN_HISTORY_PATH), { recursive: true });
-      atomicWriteFile(SCAN_HISTORY_PATH, 'url\tfirst_seen\tportal\ttitle\tcompany\tstatus\tlocation\tfingerprint\tposted_at\ttrust_score\ttrust_flags\tnormalized_company\n');
+      atomicWriteFile(SCAN_HISTORY_PATH, 'url\tfirst_seen\tportal\ttitle\tcompany\tstatus\tlocation\tfingerprint\tposted_at\ttrust_score\ttrust_flags\tnormalized_company\tquery_id\n');
     }
 
     const lines = offers.map(o => formatScanHistoryRow(o, date, status)).join('\n') + '\n';
@@ -3083,7 +3099,7 @@ export function checkAggregatorRepost(offer, domainsMap = loadAggregatorDomains(
 // stats.mjs:36 reads join(DATA_ROOT, 'data', 'scan-runs.tsv'). While this was
 // cwd-relative the writer and the reader could name different files, and the
 // trend stats simply under-reported whatever landed elsewhere.
-const SCAN_RUNS_PATH = path.join(DATA_ROOT, 'data/scan-runs.tsv');
+export const SCAN_RUNS_PATH = path.join(DATA_ROOT, 'data/scan-runs.tsv');
 
 // One row of run counters per non-dry scan — today these numbers are printed
 // once in the summary and lost when the terminal scrolls. Full ISO timestamp

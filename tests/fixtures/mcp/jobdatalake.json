@@ -1,0 +1,27 @@
+{
+  "server": "jobdatalake",
+  "query_id": "agentic-ai-us-remote",
+  "results": [
+    {
+      "job_handle": "jdl_8841",
+      "title": "Applied AI Engineer",
+      "company": "Acme AI",
+      "location": "Remote - United States",
+      "apply_url": "https://boards.greenhouse.io/acmeai/jobs/4001/",
+      "posted_at": "2026-09-28T00:00:00Z"
+    },
+    {
+      "id": "jdl_9920",
+      "title": "Solutions Architect",
+      "company": "Gamma Inc",
+      "location": "Remote",
+      "url": "https://jobs.lever.co/gamma/6f1a2b3c-0001",
+      "posted_at": "2026-10-01"
+    },
+    {
+      "job_handle": "jdl_0000",
+      "company": "NoTitle Co",
+      "apply_url": "https://jobs.lever.co/notitle/1"
+    }
+  ]
+}
