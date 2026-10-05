@@ -676,6 +676,28 @@ if (jdArchiveMissing.length === 0 && jdArchiveReviewDue.length === 0 && jdArchiv
     : `All ${jdArchiveResult.reportsScanned} report(s) have an archived JD or a resolvable jds/ capture`);
 }
 
+// --- Check 18: eval scorecard stale (soft, opt-in) ---
+// data/eval/runs.tsv is appended by eval-pipeline.mjs. Absent file = the user never
+// opted in, so stay silent. Present but newest row older than 14 days -> a warning
+// only (never an error), pointing at the command that refreshes it.
+const EVAL_RUNS_FILE = join(CAREER_OPS, 'data', 'eval', 'runs.tsv');
+const EVAL_STALE_DAYS = 14;
+if (existsSync(EVAL_RUNS_FILE)) {
+  let newest = NaN;
+  for (const line of readFileSync(EVAL_RUNS_FILE, 'utf-8').split(/\r?\n/)) {
+    const t = Date.parse(line.split('\t')[0]);
+    if (Number.isFinite(t) && (Number.isNaN(newest) || t > newest)) newest = t;
+  }
+  if (Number.isFinite(newest)) {
+    const ageDays = Math.floor((Date.now() - newest) / 86_400_000);
+    if (ageDays > EVAL_STALE_DAYS) {
+      warn(`Eval scorecard is ${ageDays} days old (data/eval/runs.tsv) — run \`node eval-pipeline.mjs --summary\` to refresh`);
+    } else {
+      ok(`Eval scorecard is fresh (${ageDays} day(s) old)`);
+    }
+  }
+}
+
 // --- Summary ---
 console.log('\n' + '='.repeat(50));
 console.log(`📊 Pipeline Health: ${errors} errors, ${warnings} warnings`);
