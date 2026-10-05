@@ -48,7 +48,7 @@ function drain(root) {
   for (;;) {
     const c = cli(root, ['claim', '--agent', 'a', '--json']);
     if (!c.json?.task) break;
-    assert.equal(cli(root, ['complete', c.json.task.task_id, '--json']).code, 0);
+    assert.equal(cli(root, ['complete', c.json.task.task_id, '--agent', 'a', '--json']).code, 0);
   }
 }
 
@@ -95,7 +95,7 @@ test('claim default agent from CAREER_OPS_AGENT, else unknown; --no-mcp skips mc
     seed(root);
     const a = cli(root, ['claim', '--json'], { CAREER_OPS_AGENT: 'codex' });
     assert.equal(a.json.task.owner, 'codex');
-    cli(root, ['complete', a.json.task.task_id]);
+    cli(root, ['complete', a.json.task.task_id, '--agent', 'codex']);
     const b = cli(root, ['claim', '--json']);
     assert.equal(b.json.task.owner, 'unknown');
     cli(root, ['complete', b.json.task.task_id]);
@@ -142,5 +142,57 @@ test('concurrent claims never return the same task', async () => {
     );
     const ids = results.map((r) => { assert.equal(r.code, 0, r.out); return JSON.parse(r.out).task.task_id; });
     assert.equal(new Set(ids).size, ids.length, `duplicate claims: ${ids}`);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('ownership: stale takeover rejects late complete/fail/heartbeat from old owner', () => {
+  const root = mkRoot();
+  try {
+    const i = seed(root);
+    const a = cli(root, ['claim', '--agent', 'A', '--json']).json.task;
+    assert.equal(a.attempts, 1);
+    // claim prefers pending over stale, so retire every other task first
+    for (let n = 2; n <= 11; n++) cli(root, ['skip', 'T' + String(n).padStart(3, '0'), '--force', '--agent', 'A']);
+    // backdate A's heartbeat so it is stale
+    const tsvPath = join(root, 'data', 'runs', i.json.run.run_id, 'tasks.tsv');
+    const old = new Date(Date.now() - 30 * 60_000).toISOString();
+    const lines = readFileSync(tsvPath, 'utf-8').split('\n');
+    const cols = lines[0].split('\t');
+    const row = lines[1].split('\t');
+    row[cols.indexOf('claimed_at')] = old;
+    row[cols.indexOf('heartbeat_at')] = old;
+    lines[1] = row.join('\t');
+    writeFileSync(tsvPath, lines.join('\n'));
+    const b = cli(root, ['claim', '--agent', 'B', '--json']).json.task;
+    assert.equal(b.task_id, a.task_id);
+    assert.equal(b.attempts, 2);
+    for (const sub of [['complete'], ['fail'], ['heartbeat']]) {
+      const r = cli(root, [...sub, a.task_id, '--agent', 'A', '--json']);
+      assert.equal(r.code, 1, sub[0]);
+      assert.match(r.json.error, /owned by B/);
+    }
+    const st = readFileSync(tsvPath, 'utf-8').split('\n')[1].split('\t');
+    assert.equal(st[cols.indexOf('status')], 'in_progress');
+    assert.equal(st[cols.indexOf('owner')], 'B');
+    // attempt mismatch rejected even for the right owner
+    const bad = cli(root, ['complete', a.task_id, '--agent', 'B', '--attempt', '1', '--json']);
+    assert.equal(bad.code, 1);
+    assert.match(bad.json.error, /attempt 2/);
+    // skip on someone else's in-progress task needs --force
+    assert.equal(cli(root, ['skip', a.task_id, '--agent', 'A', '--json']).code, 1);
+    // the owner can still finish
+    assert.equal(cli(root, ['heartbeat', a.task_id, '--agent', 'B', '--attempt', '2', '--json']).code, 0);
+    assert.equal(cli(root, ['complete', a.task_id, '--agent', 'B', '--attempt', '2', '--json']).code, 0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('skip --force overrides ownership; valued flag does not swallow next flag', () => {
+  const root = mkRoot();
+  try {
+    seed(root);
+    const a = cli(root, ['claim', '--agent', 'A', '--json']).json.task;
+    assert.equal(cli(root, ['skip', a.task_id, '--agent', 'B', '--force', '--json']).code, 0);
+    const r = cli(root, ['claim', '--agent', '--json']);
+    assert.equal(r.code, 1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

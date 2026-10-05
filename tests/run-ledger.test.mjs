@@ -136,3 +136,22 @@ test('tsv roundtrip preserves tasks and tolerates tabs in values', () => {
   assert.equal(back[0].attempts, 0);
   assert.equal(back[3].needs, 'mcp');
 });
+
+test('ownership: stale takeover blocks late calls from the old owner', () => {
+  const { tasks } = fixture();
+  const a = claimNext(tasks.slice(0, 1), { agent: 'A', now: T0 });
+  const b = claimNext(a.tasks, { agent: 'B', now: T0 + 21 * MIN });
+  assert.equal(b.task.owner, 'B');
+  const hb = heartbeat(b.tasks, 'T001', T0 + 22 * MIN, { agent: 'B', attempt: 2 });
+  assert.throws(() => complete(hb, 'T001', { now: T0 + 23 * MIN, agent: 'A', attempt: 1 }), /owned by B/);
+  assert.throws(() => fail(hb, 'T001', { now: T0, agent: 'A' }), /owned by B/);
+  assert.throws(() => heartbeat(hb, 'T001', T0, { agent: 'A' }), /owned by B/);
+  assert.equal(hb[0].status, 'in_progress');
+  assert.equal(hb[0].owner, 'B');
+  assert.equal(hb[0].heartbeat_at, new Date(T0 + 22 * MIN).toISOString());
+  assert.throws(() => complete(hb, 'T001', { now: T0, agent: 'B', attempt: 1 }), /attempt 2/);
+  assert.throws(() => skip(hb, 'T001', { now: T0, agent: 'A' }), /--force/);
+  assert.equal(skip(hb, 'T001', { now: T0, agent: 'A', force: true })[0].status, 'skipped');
+  // owner can complete its own task
+  assert.equal(complete(hb, 'T001', { now: T0 + 24 * MIN, agent: 'B', attempt: 2 })[0].status, 'completed');
+});

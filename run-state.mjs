@@ -109,12 +109,17 @@ function chunk(arr, n) {
 
 function parseArgs(argv) {
   const opts = { _: [] };
-  const valued = new Set(['agent', 'run', 'spec', 'params', 'note', 'result-ref']);
+  const valued = new Set(['agent', 'run', 'spec', 'params', 'note', 'result-ref', 'attempt']);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--')) {
       const k = a.slice(2);
-      if (valued.has(k)) opts[k.replace(/-(\w)/g, (_, c) => c.toUpperCase())] = argv[++i];
+      if (valued.has(k)) {
+        const v = argv[i + 1];
+        if (v === undefined || v.startsWith('--')) throw new Error(`--${k} needs a value`);
+        opts[k.replace(/-(\w)/g, (_, c) => c.toUpperCase())] = v;
+        i++;
+      }
       else opts[k.replace(/-(\w)/g, (_, c) => c.toUpperCase())] = true;
     } else opts._.push(a);
   }
@@ -154,7 +159,12 @@ async function mutate(root, id, fn) {
 }
 
 export async function main(argv) {
-  const opts = parseArgs(argv);
+  let opts;
+  try {
+    opts = parseArgs(argv);
+  } catch (err) {
+    return die({ json: argv.includes('--json') }, err.message);
+  }
   const [cmd, taskArg] = opts._;
   const root = getCareerOpsRoot();
   const now = new Date();
@@ -222,11 +232,12 @@ export async function main(argv) {
         if (!taskArg) return die(opts, `${cmd} needs a task id`);
         const id = resolveRunId(root, opts);
         if (!id) return die(opts, 'no running run');
+        const who = { agent, attempt: opts.attempt };
         const ops = {
-          heartbeat: (t) => heartbeat(t, taskArg, now),
-          complete: (t) => complete(t, taskArg, { now, resultRef: opts.resultRef }),
-          fail: (t) => fail(t, taskArg, { now, note: opts.note }),
-          skip: (t) => skip(t, taskArg, { now, note: opts.note }),
+          heartbeat: (t) => heartbeat(t, taskArg, now, who),
+          complete: (t) => complete(t, taskArg, { now, resultRef: opts.resultRef, ...who }),
+          fail: (t) => fail(t, taskArg, { now, note: opts.note, ...who }),
+          skip: (t) => skip(t, taskArg, { now, note: opts.note, agent, force: !!opts.force }),
         };
         await mutate(root, id, (tasks) => {
           const next = ops[cmd](tasks);
