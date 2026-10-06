@@ -19,7 +19,7 @@ const hist = (url, portal, status = 'added', { title = 'Role', date = '2026-09-0
 const TRACKER_HEAD = '# T\n\n| # | Date | Company | Role | Score | Status | PDF | Report | Notes | URL |\n|---|---|---|---|---|---|---|---|---|---|\n';
 const trow = (n, status, notes, url) => `| ${n} | 2026-09-02 | Co | Role ${n} | 4.0/5 | ${status} | Y | — | ${notes} | ${url} |\n`;
 
-const evidence = (root) => w(root, 'data/portal-health.tsv', 'timestamp\tcompany\tstatus\n2026-09-10T00:00:00Z\tCo\treachable\n');
+const evidence = (root) => w(root, 'data/applications.md', TRACKER_HEAD + trow(1, 'Applied', 'liveness: active', 'https://boards.greenhouse.io/co/jobs/1'));
 
 function pipeline(root, { verified = 6, unconfirmed = 4 } = {}) {
   const lines = ['# Pipeline', ''];
@@ -218,5 +218,17 @@ test('ghost:<score> tokens: high score reads dead, low score is no hint; last_ve
       + trow(3, 'Discarded', 'expired at employer', 'https://agg.example/3'));
     const r = await probe({ root, since: SINCE });
     assert.deepEqual([r.detail.mcpLivenessAgreement.n, r.detail.mcpLivenessAgreement.agree], [2, 2]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('portal-health rows alone (board reachability) are not liveness evidence -> insufficient-data', async () => {
+  const root = mkRoot();
+  try {
+    pipeline(root);
+    w(root, 'data/portal-health.tsv', 'timestamp\tcompany\tstatus\n2026-09-10T00:00:00Z\tCo\treachable\n');
+    const r = await probe({ root, since: SINCE });
+    assert.equal(r.verdict, 'insufficient-data');
+    assert.equal(r.metrics.livenessEvidence, 0);
+    assert.equal(r.detail.livenessEvidence.boardReachability, 1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -304,6 +304,8 @@ export function plan(jobs, config, { today }) {
   };
 }
 
+export const INGEST_MAX_ROWS = 3000;
+export const INGEST_KEEP_ROWS = 2000;
 const INGEST_TSV_HEADER = 'timestamp\trun_id\tserver\tfiles\tseen\tadded\tdupes_existing\tunconfirmed\terror_reason\n';
 
 /**
@@ -319,7 +321,8 @@ async function recordIngestRows({ runId, serverFiles, errors, perServer }) {
     const rows = [];
     for (const srv of [...serverFiles.keys()].sort()) {
       const c = perServer.get(srv) ?? { seen: 0, added: 0, unconfirmed: 0, dupes_existing: 0 };
-      rows.push([ts, runId, srv, serverFiles.get(srv), c.seen, c.added, c.dupes_existing, c.unconfirmed, '']);
+      const bad = errors.filter((e) => e.server === srv).length;   // errored files get their own error row
+      rows.push([ts, runId, srv, Math.max(0, serverFiles.get(srv) - bad), c.seen, c.added, c.dupes_existing, c.unconfirmed, '']);
     }
     for (const e of errors) rows.push([ts, runId, e.server, 1, 0, 0, 0, 0, e.reason]);
     if (!rows.length) return;
@@ -327,6 +330,11 @@ async function recordIngestRows({ runId, serverFiles, errors, perServer }) {
       mkdirSync(path.dirname(file), { recursive: true });
       if (!existsSync(file)) writeFileSync(file, INGEST_TSV_HEADER);
       appendFileSync(file, rows.map((r) => r.join('\t')).join('\n') + '\n');
+      // Bounded like dropped-titles.tsv: above MAX rows keep header + newest KEEP.
+      const all = readFileSync(file, 'utf-8').split('\n').filter(Boolean);
+      if (all.length - 1 > INGEST_MAX_ROWS) {
+        writeFileSync(file, [all[0], ...all.slice(all.length - INGEST_KEEP_ROWS)].join('\n') + '\n');
+      }
     });
   } catch { /* advisory log only */ }
 }
@@ -413,14 +421,41 @@ function rowParts(m) {
   return { url: parts[0], company: parts[1] ?? '', title: parts[2] ?? '', rest: parts.slice(3) };
 }
 
+/** True when scan-history already holds a row for `url` with this status. */
+function historyHas(url, status) {
+  const want = normalizeUrlForDedup(url);
+  try {
+    for (const line of readFileSync(SCAN_HISTORY_PATH, 'utf-8').split(/\r?\n/)) {
+      const c = line.split('\t');
+      if (c[0] && c[5] === status && normalizeUrlForDedup(c[0]) === want) return true;
+    }
+  } catch { /* no history yet */ }
+  return false;
+}
+
+/** Any pipeline row (any marker/section) already carrying this URL. */
+function findRowByUrl(lines, url, markerRe) {
+  const want = normalizeUrlForDedup(url);
+  for (let i = 0; i < lines.length; i++) {
+    const m = markerRe.exec(lines[i]);
+    if (m && normalizeUrlForDedup(m[1]) === want) return i;
+  }
+  return -1;
+}
+
 /**
  * Resolve one `- [?]` aggregator row in data/pipeline.md.
  *  mode 'confirm': rewrite to `- [ ]` on the employer URL (provenance note keeps the
  *                  aggregator URL) + scan-history row for the employer URL, status `added`.
+ *                  If the employer URL is already a pipeline row the `[?]` row is merged
+ *                  into it (removed) instead of creating a duplicate.
  *  mode 'stale':   move the row to Processed as a struck-through line + scan-history
  *                  row for the aggregator URL, status `skipped_expired`.
- * Locked + atomic like every other pipeline writer. Throws {notFound:true} when the URL
- * has no `[?]` row.
+ * Idempotent: a repeat call that finds the outcome already recorded returns
+ * `{already: 'confirmed'|'stale'}` and writes nothing. The history row is appended first
+ * and the pipeline rewritten after, all under the pipeline lock, so a crash can never leave a
+ * rewritten pipeline without its history row. Throws {notFound:true} when there is neither a
+ * `[?]` row nor a recorded outcome.
  */
 export async function resolveUnconfirmed({ mode, url, employerUrl, dryRun = false, pipelinePath = PIPELINE_PATH }) {
   let result;
@@ -429,13 +464,37 @@ export async function resolveUnconfirmed({ mode, url, employerUrl, dryRun = fals
     const eol = text.includes('\r\n') ? '\r\n' : '\n';
     const lines = text.split(/\r?\n/);
     const hit = findUnconfirmed(lines, url);
-    if (!hit) throw Object.assign(new Error(`no [?] row for ${url} in ${pipelinePath}`), { notFound: true });
+    if (!hit) {
+      if (mode === 'confirm'
+        && (findRowByUrl(lines, employerUrl, /^\s*-\s*\[[ xX]\]\s*(\S+)/) !== -1 || historyHas(employerUrl, 'added'))) {
+        result = { action: 'confirm', already: 'confirmed', url, employer_url: employerUrl };
+        return;
+      }
+      if (mode === 'stale' && (historyHas(url, 'skipped_expired')
+        || lines.some((l) => /^\s*-\s*\[x\]\s*~~/i.test(l) && normalizeUrlForDedup(l.replace(/^\s*-\s*\[x\]\s*~~\s*/i, '').split(' | ')[0].trim()) === normalizeUrlForDedup(url)))) {
+        result = { action: 'stale', already: 'stale', url };
+        return;
+      }
+      throw Object.assign(new Error(`no [?] row for ${url} in ${pipelinePath}`), { notFound: true });
+    }
     const row = rowParts(hit.match);
+    const date = localToday();
+    let history = null;
     if (mode === 'confirm') {
-      const rest = row.rest.filter((p) => !/^note:/i.test(p));
-      rest.push(`note: via ${sanitizeMarkdownField(url)}; confirmed at employer`);
-      lines[hit.index] = `${hit.match[1]}[ ] ${[sanitizePipelineUrl(employerUrl), row.company, row.title, ...rest].join(' | ')}`;
-      result = { action: 'confirm', url, employer_url: employerUrl, company: row.company, title: row.title };
+      const dupAt = findRowByUrl(lines, employerUrl, /^\s*-\s*\[[ xX]\]\s*(\S+)/);
+      if (dupAt !== -1) {
+        lines.splice(hit.index, 1);                    // merge: the employer row already exists
+        result = { action: 'confirm', merged: true, url, employer_url: employerUrl, company: row.company, title: row.title };
+      } else {
+        const rest = row.rest.filter((p) => !/^note:/i.test(p));
+        rest.push(`note: via ${sanitizeMarkdownField(url)}; confirmed at employer`);
+        lines[hit.index] = `${hit.match[1]}[ ] ${[sanitizePipelineUrl(employerUrl), row.company, row.title, ...rest].join(' | ')}`;
+        result = { action: 'confirm', url, employer_url: employerUrl, company: row.company, title: row.title };
+        history = [{
+          url: employerUrl, title: row.title, company: row.company,
+          source: historyPortalFor(url) || 'mcp-confirm', historyFlags: ['confirmed_from:aggregator'],
+        }, 'added'];
+      }
     } else {
       lines.splice(hit.index, 1);
       const struck = `- [x] ~~${[row.url, row.company, row.title].filter(Boolean).join(' | ')}~~ — not found at employer (mcp ingest)`;
@@ -451,24 +510,17 @@ export async function resolveUnconfirmed({ mode, url, employerUrl, dryRun = fals
         lines.splice(at, 0, struck);
       }
       result = { action: 'stale', url, company: row.company, title: row.title };
+      history = [{
+        url, title: row.title, company: row.company,
+        source: historyPortalFor(url) || 'mcp-confirm', historyFlags: ['note:not_found_at_employer'],
+      }, 'skipped_expired'];
     }
-    if (!dryRun) atomicWriteFile(pipelinePath, lines.join(eol));
+    if (!dryRun) {
+      if (history) await appendToScanHistory([history[0]], date, history[1]);   // history first, then pipeline
+      atomicWriteFile(pipelinePath, lines.join(eol));
+    }
   });
   result.dry_run = dryRun;
-  if (!dryRun) {
-    const date = localToday();
-    if (mode === 'confirm') {
-      await appendToScanHistory([{
-        url: employerUrl, title: result.title, company: result.company,
-        source: historyPortalFor(url) || 'mcp-confirm', historyFlags: ['confirmed_from:aggregator'],
-      }], date, 'added');
-    } else {
-      await appendToScanHistory([{
-        url, title: result.title, company: result.company,
-        source: historyPortalFor(url) || 'mcp-confirm', historyFlags: ['note:not_found_at_employer'],
-      }], date, 'skipped_expired');
-    }
-  }
   return result;
 }
 
@@ -499,7 +551,9 @@ async function resolveMain(args) {
     return 1;
   }
   try {
-    console.log(JSON.stringify(await resolveUnconfirmed({ mode, url, employerUrl, dryRun }), null, 2));
+    const res = await resolveUnconfirmed({ mode, url, employerUrl, dryRun });
+    if (res.already) console.error(`already ${res.already}: nothing to do for ${url}`);
+    console.log(JSON.stringify(res, null, 2));
     return 0;
   } catch (err) {
     console.error(`Error: ${err.message}`);

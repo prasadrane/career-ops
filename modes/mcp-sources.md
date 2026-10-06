@@ -95,7 +95,7 @@ Read it like this:
 - `unconfirmed`: aggregator rows (FoundRole, aggregator hosts, unidentified employer) written as `- [?]`. They are NOT live openings yet; see section 5.
 - `dupes`: already known by URL or company+role fingerprint; the second source is credited as `also_seen`, not added again.
 - `filtered.*`: dropped by blacklist, title filter, location filter or cooldown.
-- `errors[]`: per-file problems (`empty`, `malformed-json`, `no-valid-rows`, `unknown-server`, `unreadable`). These never fail the run. Report each one to the user and record the server as errored in the ledger note (`--note` on `fail`, or on `complete` when the other servers worked). Do not silently treat an errored server as a clean zero.
+- `errors[]`: per-file problems (`empty`, `malformed-json`, `no-valid-rows`, `unknown-server`, `unreadable`, `no-raw-dir` when the run directory is missing or holds no `*.json`). These never fail the run. Report each one to the user and record the server as errored in the ledger note (`--note` on `fail`, or on `complete` when the other servers worked). Do not silently treat an errored server as a clean zero.
 
 Finish with `node eval-pipeline.mjs --phase p1 --summary` only when the user asks; the scorecard is `modes/eval.md`.
 

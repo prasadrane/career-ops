@@ -195,6 +195,21 @@ test('claimNext: only MCP tasks remain for a no-MCP agent', () => {
   assert.equal(r.task.stage, 'B1');
 });
 
+test('onlyMcp: a no-MCP agent with only deferred MCP tasks left gets {task:null, onlyMcp:N}', () => {
+  const { tasks } = initRun({ runId: 'r', now: T0, enabledServers: ['s'], targetChunks: [['A']], mcpQueries: [{ id: 'q' }] });
+  let cur = tasks;
+  let last;
+  for (let i = 0; i < 50; i++) {
+    last = claimNext(cur, { agent: 'n', now: T0, noMcp: true });
+    if (!last || !last.task) break;
+    cur = complete(last.tasks, last.task.task_id, { now: T0 });
+  }
+  assert.equal(last.task, null);
+  assert.equal(last.onlyMcp, 2);   // one A3 chunk + one B2 query
+  assert.equal(summarize(last.tasks, T0).deferredMcp, 2);
+  assert.equal(last.tasks.filter((t) => t.status === 'deferred').length, 2);
+});
+
 test('per-task stale_min: A2/B1/D1 stay live at 40 min; default tasks go stale at 21', () => {
   const { tasks } = fixture();
   assert.equal(tasks.find((t) => t.stage === 'A1').stale_min, 20);
