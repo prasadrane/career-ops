@@ -17,6 +17,7 @@
  *   bullets      more than the cap per role (first role 7, others 3) or
  *                projects (3 each) — overflow is fixed by trimming, never shrinking.
  *   bold         fewer than 5 \textbf metrics in the experience section.
+ *   contact      the contact line mentions both relocation and remote (use exactly one).
  *   skill-label  a \skillrow label wider than the 1.15in label box (~16 chars).
  *   pages        PDF beside the .tex is not exactly 1 page (needs pdfinfo; skipped if absent).
  *   docx         .docx beside the .tex has a different font family, or different
@@ -140,6 +141,10 @@ export function checkResumeFormat(rawTex, { lock, texPath } = {}) {
       if (n > MAX_BULLETS_PROJECT) add('bullets', `project ${i + 1} has ${n} bullets (cap ${MAX_BULLETS_PROJECT})`);
     });
   }
+
+  // contact line: exactly one of relocation OR remote, never both
+  const contact = /Lake Bluff, IL([^\\]*)\\sep/.exec(body)?.[1] ?? '';
+  if (/relocation/i.test(contact) && /remote/i.test(contact)) add('contact', `contact line mentions both relocation and remote: "Lake Bluff, IL${contact.trim()}"; use exactly one (rule 8)`);
 
   // bold metrics
   const bold = (exp.match(/\\textbf\{/g) ?? []).length;

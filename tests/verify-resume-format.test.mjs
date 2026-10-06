@@ -33,6 +33,12 @@ test('missing bold metrics, long skill label and extra bullets are flagged', () 
   assert.ok(rules(extra).includes('bullets'));
 });
 
+test('contact line with both relocation and remote is flagged; either alone passes', () => {
+  assert.ok(rules(canonical.replace('(open to CA relocation)', '(open to California relocation and US remote)')).includes('contact'));
+  assert.ok(!rules(canonical.replace('(open to CA relocation)', '(open to US remote)')).includes('contact'));
+  assert.ok(!rules(canonical).includes('contact'));
+});
+
 test('dropping or reordering sections is flagged; Projects stays optional', () => {
   assert.ok(rules(canonical.replace(/\\resumesection\{TECHNICAL SKILLS\}/, '\\resumesection{SKILLS}')).includes('sections'));
   const noProjects = canonical.replace(/\\resumesection\{SELECTED PROJECTS\}[\s\S]*?\\end\{itemize\}\n/, '');
