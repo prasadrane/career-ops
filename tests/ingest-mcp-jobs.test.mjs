@@ -333,11 +333,10 @@ test('existing scan-history readers tolerate the appended query_id column', () =
   } finally { sb.done(); }
 });
 
-test('usage: --run is required and the run directory must exist', () => {
+test('usage: --run is required', () => {
   const sb = sandbox();
   try {
     assert.equal(ingest(sb.root, []).code, 1);
-    assert.equal(ingest(sb.root, ['--run', 'nope']).code, 1);
     assert.equal(ingest(sb.root, ['--bogus']).code, 1);
   } finally { sb.done(); }
 });
@@ -403,5 +402,18 @@ test('an earlier aggregator-only row never suppresses a later employer-direct po
     put(sb.raw, 'jobspipe-q1.json', { server: 'jobspipe', rows: [ACME('https://boards.greenhouse.io/acmeai/jobs/4001')] });
     const r = ingest(sb.root);
     assert.equal(r.json.added, 1);
+  } finally { sb.done(); }
+});
+
+test('missing or empty raw dir -> seen 0, no-raw-dir note, exit 0, nothing written', () => {
+  const sb = sandbox();
+  try {
+    for (const run of ['nope', RUN]) {
+      const r = ingest(sb.root, ['--run', run]);
+      assert.equal(r.code, 0, r.err);
+      assert.equal(r.json.seen, 0);
+      assert.deepEqual(r.json.errors, [{ server: 'none', reason: 'no-raw-dir' }]);
+    }
+    assert.equal(existsSync(join(sb.root, 'data', 'scan-history.tsv')), false);
   } finally { sb.done(); }
 });

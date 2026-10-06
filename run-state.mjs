@@ -12,21 +12,21 @@
 // mutation runs under the pipeline-lock primitive and writes atomically
 // (tmp file + rename), so two agents racing on `claim` never get one task.
 // Pure logic: lib/run-ledger.mjs. Agent name: --agent, else CAREER_OPS_AGENT,
-// else "unknown". Exit codes: 0 ok, 10 (status only) unfinished run, 1 error.
+// else "unknown". Exit codes: 0 ok, 10 (status only) unfinished run,
+// 11 (claim only) blocked by an earlier in-progress stage, 1 error.
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { createHash, randomBytes } from 'crypto';
 import * as yaml from 'js-yaml';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { withPipelineLock } from './pipeline-lock.mjs';
+import { loadTargets, chunk } from './lib/target-companies.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import {
   initRun, claimNext, heartbeat, complete, fail, skip, summarize, hasUnfinished,
   serializeTasks, parseTasks,
 } from './lib/run-ledger.mjs';
-
-const CHUNK_SIZE = 20;
 
 const runsDir = (root) => join(root, 'data', 'runs');
 
@@ -52,13 +52,64 @@ function readIf(p) {
   try { return readFileSync(p, 'utf-8'); } catch { return ''; }
 }
 
-/** Hash of the files that define queries/filters; changes mean a resumed run is stale. */
+function portalsPath(root) {
+  const o = process.env.CAREER_OPS_PORTALS;
+  return o ? resolve(root, o) : join(root, 'portals.yml');
+}
+
+function readPortals(root) {
+  const raw = readIf(portalsPath(root));
+  if (!raw) return { raw: '', doc: null };
+  try {
+    const doc = yaml.load(raw);
+    return { raw, doc: doc && typeof doc === 'object' ? doc : null };
+  } catch {
+    return { raw, doc: null };
+  }
+}
+
+function stableJson(v) {
+  if (Array.isArray(v)) return `[${v.map(stableJson).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stableJson(v[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v ?? null);
+}
+
+/**
+ * Hash of what defines queries/filters: the portals.yml filter blocks (NOT the
+ * whole file: A1 edits tracked_companies mid-run), profile.yml, target list.
+ * A changed hash means a resumed run is stale.
+ */
 export function computeProfileHash(root) {
   const h = createHash('sha256');
-  for (const rel of ['config/profile.yml', 'portals.yml', 'data/target-companies.yml']) {
+  const { raw, doc } = readPortals(root);
+  if (doc) {
+    for (const k of ['title_filter', 'location_filter', 'mcp_sources']) {
+      h.update(`portals.${k}\0${stableJson(doc[k])}\0`);
+    }
+  } else {
+    h.update(`portals.yml\0${raw}\0`);
+  }
+  for (const rel of ['config/profile.yml', 'data/target-companies.yml']) {
     h.update(`${rel}\0${readIf(join(root, rel))}\0`);
   }
   return h.digest('hex').slice(0, 16);
+}
+
+/** Enabled MCP servers + query ids from portals.yml `mcp_sources` (absent = none). */
+function mcpFromPortals(root) {
+  const m = readPortals(root).doc?.mcp_sources;
+  const enabledServers = Array.isArray(m?.enabled) ? m.enabled.map(String) : [];
+  const mcpQueries = (Array.isArray(m?.queries) ? m.queries : [])
+    .filter((q) => q && q.id).map((q) => ({ id: String(q.id) }));
+  return { enabledServers, mcpQueries };
+}
+
+function targetChunksFromFile(root) {
+  const p = join(root, 'data', 'target-companies.yml');
+  if (!existsSync(p)) return [];
+  try { return chunk(loadTargets(p)); } catch { return []; }
 }
 
 function listRunIds(root) {
@@ -90,21 +141,6 @@ function readTasks(root, id) {
 
 function writeTasks(root, id, tasks) {
   atomicWrite(join(runsDir(root), id, 'tasks.tsv'), serializeTasks(tasks));
-}
-
-function companiesFromTargets(root) {
-  const raw = readIf(join(root, 'data', 'target-companies.yml'));
-  if (!raw) return [];
-  let doc;
-  try { doc = yaml.load(raw); } catch { return []; }
-  const list = Array.isArray(doc) ? doc : (doc?.companies ?? doc?.targets ?? []);
-  return list.map((c) => (typeof c === 'string' ? c : c?.name)).filter(Boolean);
-}
-
-function chunk(arr, n) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
-  return out;
 }
 
 function parseArgs(argv) {
@@ -179,11 +215,13 @@ export async function main(argv) {
         let spec = {};
         if (opts.spec) spec = JSON.parse(readFileSync(opts.spec, 'utf-8'));
         const params = opts.params ? JSON.parse(opts.params) : (spec.params ?? {});
-        const targetChunks = spec.targetChunks ?? chunk(companiesFromTargets(root), CHUNK_SIZE);
+        const targetChunks = spec.targetChunks ?? targetChunksFromFile(root);
+        const fromPortals = (spec.mcpQueries && spec.enabledServers) ? null : mcpFromPortals(root);
         const runId = `${now.toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-')}-${randomBytes(2).toString('hex')}`;
         const { run, tasks } = initRun({
           runId, now, params, profileHash: computeProfileHash(root), targetChunks,
-          mcpQueries: spec.mcpQueries ?? [], enabledServers: spec.enabledServers ?? [],
+          mcpQueries: spec.mcpQueries ?? fromPortals.mcpQueries,
+          enabledServers: spec.enabledServers ?? fromPortals.enabledServers,
         });
         const dir = join(runsDir(root), runId);
         mkdirSync(dir, { recursive: true });
@@ -206,6 +244,7 @@ export async function main(argv) {
         emit(opts, { run, summary, profileChanged, unfinished },
           `run ${id} [${run.status}] ${summary.done}/${summary.total} done, ${summary.pending} pending, `
           + `${summary.inProgress} in progress (${summary.stale} stale), ${summary.failed} failed`
+          + `${summary.deferredMcp ? `, ${summary.deferredMcp} deferred (MCP)` : ''}`
           + `${summary.nextTask ? `; next ${summary.nextTask.task_id} ${summary.nextTask.title}` : ''}`
           + `${summary.lastActive ? `; last active ${summary.lastActive} by ${summary.lastAgent}` : ''}`
           + `${profileChanged ? '; PROFILE CHANGED since init' : ''}`);
@@ -214,14 +253,26 @@ export async function main(argv) {
       case 'claim': {
         const id = resolveRunId(root, opts);
         if (!id) return die(opts, 'no running run (node run-state.mjs init)');
-        const claimed = await mutate(root, id, (tasks) => {
-          const r = claimNext(tasks, { agent, now, noMcp: !!opts.noMcp });
-          if (!r) return { tasks, result: null };
-          finalizeIfDone(root, id, r.tasks, now);
-          return { tasks: r.tasks, result: r.task };
+        const r = await mutate(root, id, (tasks) => {
+          const res = claimNext(tasks, { agent, now, noMcp: !!opts.noMcp });
+          if (!res) return { tasks, result: null };
+          if (res.task) finalizeIfDone(root, id, res.tasks, now);
+          return { tasks: res.tasks, result: res };
         });
+        if (r?.blockedBy) {
+          emit(opts, { run_id: id, task: null, blockedBy: r.blockedBy },
+            `blocked-by ${r.blockedBy}: an earlier-stage task is still in progress; retry later`);
+          return 11;
+        }
+        if (r && !r.task && r.onlyMcp) {
+          emit(opts, { run_id: id, task: null, onlyMcp: r.onlyMcp },
+            `only MCP tasks remain (${r.onlyMcp} deferred)`);
+          return 0;
+        }
+        const claimed = r?.task ?? null;
         emit(opts, { run_id: id, task: claimed }, claimed
-          ? `claimed ${claimed.task_id} ${claimed.stage} ${claimed.title} (attempt ${claimed.attempts})\n${claimed.command}`
+          ? `claimed ${claimed.task_id} ${claimed.stage} ${claimed.title} (attempt ${claimed.attempts})
+${claimed.command}`
           : 'no claimable task');
         return 0;
       }

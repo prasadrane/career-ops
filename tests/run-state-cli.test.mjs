@@ -140,7 +140,10 @@ test('concurrent claims never return the same task', async () => {
     const results = await Promise.all(
       Array.from({ length: 6 }, (_, i) => cliAsync(root, ['claim', '--agent', `p${i}`, '--json'])),
     );
-    const ids = results.map((r) => { assert.equal(r.code, 0, r.out); return JSON.parse(r.out).task.task_id; });
+    // stage ordering: only the first claim wins (rest are blocked, exit 11)
+    const ids = results.filter((r) => r.code === 0).map((r) => JSON.parse(r.out).task.task_id);
+    assert.ok(ids.length >= 1);
+    assert.ok(results.every((r) => r.code === 0 || r.code === 11), results.map((r) => r.code).join());
     assert.equal(new Set(ids).size, ids.length, `duplicate claims: ${ids}`);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -194,5 +197,86 @@ test('skip --force overrides ownership; valued flag does not swallow next flag',
     assert.equal(cli(root, ['skip', a.task_id, '--agent', 'B', '--force', '--json']).code, 0);
     const r = cli(root, ['claim', '--agent', '--json']);
     assert.equal(r.code, 1);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+function writePortals(root, extra = '') {
+  writeFileSync(join(root, 'portals.yml'), [
+    'title_filter:', '  positive: ["engineer"]', 'location_filter:', '  allow: ["remote"]',
+    'mcp_sources:', '  enabled: [foundrole, jobspipe]', '  queries:', '    - id: q-one', '      titles: ["x"]',
+    'tracked_companies:', '  - name: Acme', '    enabled: true', extra,
+  ].join('\n'));
+}
+
+test('init WITHOUT --spec reads mcp_sources + target chunks from portals.yml / target-companies.yml', () => {
+  const root = mkRoot();
+  try {
+    writePortals(root);
+    writeFileSync(join(root, 'data', 'target-companies.yml'),
+      'companies:\n  - name: "Alpha, Inc"\n  - name: Beta\n');
+    const i = cli(root, ['init', '--json']);
+    assert.equal(i.code, 0, i.err);
+    const tsv = readFileSync(join(root, 'data', 'runs', i.json.run.run_id, 'tasks.tsv'), 'utf-8');
+    assert.match(tsv, /mcp-target-foundrole-chunk1/);
+    assert.match(tsv, /mcp-target-jobspipe-chunk1/);
+    assert.match(tsv, /mcp-broad-foundrole-q-one/);
+    assert.match(tsv, /\["Alpha, Inc","Beta"\]/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('init without --spec and without mcp_sources creates no MCP tasks', () => {
+  const root = mkRoot();
+  try {
+    const i = cli(root, ['init', '--json']);
+    assert.equal(i.code, 0, i.err);
+    const tsv = readFileSync(join(root, 'data', 'runs', i.json.run.run_id, 'tasks.tsv'), 'utf-8');
+    assert.doesNotMatch(tsv, /\tmcp\t/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('profile hash ignores tracked_companies edits but not title_filter edits', () => {
+  const root = mkRoot();
+  try {
+    writePortals(root);
+    cli(root, ['init', '--json']);
+    assert.equal(cli(root, ['status', '--json']).json.profileChanged, false);
+    writePortals(root, '  - name: Added By A1\n    enabled: true');
+    assert.equal(cli(root, ['status', '--json']).json.profileChanged, false);
+    writeFileSync(join(root, 'portals.yml'), readFileSync(join(root, 'portals.yml'), 'utf-8').replace('"engineer"', '"designer"'));
+    assert.equal(cli(root, ['status', '--json']).json.profileChanged, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('claim: blocked by earlier in-progress stage exits 11', () => {
+  const root = mkRoot();
+  try {
+    seed(root);
+    assert.equal(cli(root, ['claim', '--agent', 'a', '--json']).code, 0);
+    const b = cli(root, ['claim', '--agent', 'b', '--json']);
+    assert.equal(b.code, 11);
+    assert.equal(b.json.blockedBy, 'T001');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('claim --no-mcp defers MCP tasks: run stays running, status exit 10 + deferredMcp, MCP agent resumes', () => {
+  const root = mkRoot();
+  try {
+    seed(root);
+    // finish A1/A2 normally, then a no-MCP agent drains everything it can
+    for (;;) {
+      const c = cli(root, ['claim', '--agent', 'n', '--no-mcp', '--json']);
+      if (!c.json?.task) {
+        assert.equal(c.code, 0);
+        assert.ok(c.json.onlyMcp > 0, JSON.stringify(c.json));
+        break;
+      }
+      assert.equal(cli(root, ['complete', c.json.task.task_id, '--agent', 'n', '--json']).code, 0);
+    }
+    const s = cli(root, ['status', '--json']);
+    assert.equal(s.code, 10);
+    assert.equal(s.json.run.status, 'running');
+    assert.ok(s.json.summary.deferredMcp > 0);
+    const m = cli(root, ['claim', '--agent', 'm', '--json']);
+    assert.equal(m.json.task.needs, 'mcp');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

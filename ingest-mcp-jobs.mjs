@@ -16,10 +16,11 @@
 // Prints one JSON object:
 //   {seen, filtered:{title,location,blacklist,cooldown}, dupes, added, unconfirmed,
 //    errors:[{server, reason}]}
-//   reason: empty | malformed-json | no-valid-rows | unknown-server | unreadable
+//   reason: empty | malformed-json | no-valid-rows | unknown-server | unreadable | no-raw-dir
 // Per-file problems never fail the run (exit 0): the other servers still ingest and the
 // problem is listed in `errors` so the scorecard shows that source as error/empty.
-// Exit 1 only on usage errors (missing --run, no such run directory).
+// A missing or empty raw directory is `seen: 0` + errors [{reason: 'no-raw-dir'}], exit 0.
+// Exit 1 only on usage errors (missing --run).
 //
 // Aggregator rule (AGENTS.md): a posting is UNCONFIRMED (status `unconfirmed`, `[?]`
 // marker, counted in `unconfirmed`, never in `added`) when the adapter says so
@@ -277,8 +278,15 @@ export function plan(jobs, config, { today }) {
 
 export async function ingestRun({ runId, dryRun = false }) {
   const runDir = path.join(getCareerOpsRoot(), 'data', 'mcp-raw', runId);
-  if (!existsSync(runDir) || !statSync(runDir).isDirectory()) {
-    throw Object.assign(new Error(`no such run directory: ${runDir}`), { usage: true });
+  // A run whose MCP tasks never wrote raw files (no MCP agent, quiet run) is not an
+  // error: report an empty ingest with a `no-raw-dir` note and write nothing.
+  const hasRaw = existsSync(runDir) && statSync(runDir).isDirectory()
+    && readdirSync(runDir).some((f) => /\.json$/i.test(f));
+  if (!hasRaw) {
+    return {
+      seen: 0, filtered: { title: 0, location: 0, blacklist: 0, cooldown: 0 },
+      dupes: 0, added: 0, unconfirmed: 0, errors: [{ server: 'none', reason: 'no-raw-dir' }],
+    };
   }
   const config = readPortalsConfig();
   const { jobs, errors, files } = loadRun(runDir);

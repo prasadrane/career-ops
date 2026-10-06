@@ -52,7 +52,10 @@ test('claimNext: first pending, then next; does not mutate input', () => {
   assert.equal(a.task.owner, 'x');
   assert.equal(a.task.attempts, 1);
   assert.equal(tasks[0].status, 'pending');
-  const b = claimNext(a.tasks, { agent: 'y', now: T0 });
+  const blocked = claimNext(a.tasks, { agent: 'y', now: T0 });
+  assert.equal(blocked.task, null);
+  assert.equal(blocked.blockedBy, 'T001');
+  const b = claimNext(complete(a.tasks, 'T001', { now: T0 }), { agent: 'y', now: T0 });
   assert.equal(b.task.seq, 2);
 });
 
@@ -105,9 +108,15 @@ test('noMcp skips mcp tasks and claims next non-mcp task', () => {
   }
   const r = claimNext(cur, { agent: 'nomcp', now: T0, noMcp: true });
   assert.equal(r.task.stage, 'B1');
-  const skipped = r.tasks.filter((t) => t.status === 'skipped');
-  assert.equal(skipped.length, 10);
-  assert.ok(skipped.every((t) => t.note === 'agent has no MCP'));
+  const deferred = r.tasks.filter((t) => t.status === 'deferred');
+  assert.equal(deferred.length, 10);
+  assert.ok(deferred.every((t) => t.note === 'agent has no MCP'));
+  assert.equal(r.tasks.filter((t) => t.status === 'skipped').length, 0);
+  assert.equal(summarize(r.tasks, T0).deferredMcp, 10);
+  // an MCP-capable agent claims the lowest-seq deferred task
+  const m = claimNext(complete(r.tasks, r.task.task_id, { now: T0 }), { agent: 'mcp', now: T0 });
+  assert.equal(m.task.stage, 'A3');
+  assert.equal(m.task.seq, deferred[0].seq);
 });
 
 test('summarize reports stale and counts', () => {
@@ -121,7 +130,7 @@ test('summarize reports stale and counts', () => {
   assert.equal(s.total, tasks.length);
   assert.equal(s.pending, tasks.length - 1);
   assert.equal(s.lastAgent, 'codex');
-  assert.equal(s.nextTask.task_id, 'T002');
+  assert.equal(s.nextTask.task_id, 'T001'); // stale task has the lowest seq
   cur = complete(cur, 'T001', { now: T0 + MIN });
   assert.equal(summarize(cur, T0 + MIN).done, 1);
 });
@@ -164,5 +173,50 @@ test('initRun interpolates {run_id}/{n}/{companies} in every command', () => {
     assert.ok(!t.command.includes('{run_id}') && !t.command.includes('{n}'), `${t.stage}: ${t.command}`);
   }
   assert.match(tasks.find((t) => t.stage === 'C1').command, /--run R1/);
-  assert.match(tasks.find((t) => t.stage === 'A3').command, /\[A\]/);
+  assert.match(tasks.find((t) => t.stage === 'A3').command, /\["A"\]/);
+});
+
+test('claimNext: lowest-seq among pending and stale (crashed task redone first)', () => {
+  const { tasks } = fixture();
+  let cur = claimNext(tasks, { agent: 'x', now: T0 }).tasks; // T001 in progress, then crashes
+  const r = claimNext(cur, { agent: 'y', now: T0 + 25 * MIN });
+  assert.equal(r.task.task_id, 'T001');
+  assert.equal(r.task.attempts, 2);
+});
+
+test('claimNext: only MCP tasks remain for a no-MCP agent', () => {
+  const { tasks } = initRun({ runId: 'r', now: T0, enabledServers: ['s'], targetChunks: [['A']], mcpQueries: [] });
+  let cur = tasks;
+  for (let i = 0; i < 2; i++) {
+    const c = claimNext(cur, { agent: 'x', now: T0 });
+    cur = complete(c.tasks, c.task.task_id, { now: T0 });
+  }
+  const r = claimNext(cur, { agent: 'n', now: T0, noMcp: true });
+  assert.equal(r.task.stage, 'B1');
+});
+
+test('per-task stale_min: A2/B1/D1 stay live at 40 min; default tasks go stale at 21', () => {
+  const { tasks } = fixture();
+  assert.equal(tasks.find((t) => t.stage === 'A1').stale_min, 20);
+  for (const st of ['A2', 'B1', 'D1']) assert.equal(tasks.find((t) => t.stage === st).stale_min, 60);
+  const t = { ...tasks[1], status: 'in_progress', claimed_at: new Date(T0).toISOString(), heartbeat_at: new Date(T0).toISOString() };
+  assert.equal(t.stage, 'A2');
+  assert.equal(claimNext([t], { agent: 'y', now: T0 + 40 * MIN }), null);
+  assert.ok(claimNext([t], { agent: 'y', now: T0 + 61 * MIN }));
+});
+
+test('parseTasks tolerates a tasks.tsv without stale_min; command JSON-quotes company names', () => {
+  const { tasks } = fixture();
+  const NL = String.fromCharCode(10); const TAB = String.fromCharCode(9);
+  const text = serializeTasks(tasks).split(NL).map((l) => l.split(TAB).slice(0, -1).join(TAB)).join(NL);
+  assert.equal(parseTasks(text)[0].stale_min, 20);
+  const { tasks: t2 } = initRun({ runId: 'R', now: T0, enabledServers: ['s'], targetChunks: [['A, B', 'C']], mcpQueries: [] });
+  assert.match(t2.find((t) => t.stage === 'A3').command, /\["A, B","C"\]/);
+});
+
+test('A1 is a preview (no --write); E2 does not record', () => {
+  const { tasks } = fixture();
+  assert.doesNotMatch(tasks.find((t) => t.stage === 'A1').command, /--write/);
+  assert.match(tasks.find((t) => t.stage === 'E2').command, /--propose --no-record/);
+  assert.match(tasks.find((t) => t.stage === 'D1').command, /batch\/batch-state\.tsv/);
 });
