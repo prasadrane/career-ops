@@ -24,7 +24,7 @@ Run the deterministic pipeline scorecard and present it. Where `calibrate` asks 
      |---|---|
      | p1 sources | Are boards and MCP connectors healthy and yielding new postings? |
      | p2 search filter | Does the title filter keep the right titles and drop the wrong ones? |
-     | p3 liveness/dedup | Are postings real and open, or unconfirmed/aggregator-only/reposted? |
+     | p3 liveness/dedup | Are postings real and open, or unconfirmed/aggregator-only/reposted? (`insufficient-data` until real liveness evidence exists) |
      | p4 scoring | Do reports still agree with the user's own frozen labels (`golden-user.jsonl`)? |
      | p5 tailoring | Do tailored CVs pass the fact gate and cover the JD at least as well as `cv.md`? |
      | p6 outcomes | Are there enough resolved outcomes to say anything (usually `insufficient-data` early on)? |

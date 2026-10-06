@@ -29,6 +29,7 @@ import { writeProposals } from './lib/eval/proposals.mjs';
 import { labelGolden } from './lib/eval/golden-label.mjs';
 
 export const PHASES = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'];
+const VERDICTS = ['pass', 'warn', 'fail', 'insufficient-data'];
 const DEFAULT_SINCE_DAYS = 30;
 const EVAL_DIR = join(dirname(fileURLToPath(import.meta.url)), 'lib', 'eval');
 const NON_PROBE_FILES = new Set(['verdict.mjs', 'proposals.mjs', 'golden-label.mjs']);
@@ -66,7 +67,12 @@ export async function runProbes(ctx, wanted, dir = EVAL_DIR) {
       const res = await mod.default(ctx);
       const phase = res?.phase ?? m?.[1];
       if (!PHASES.includes(phase)) throw new Error(`unknown phase "${phase}"`);
-      byPhase.set(phase, { metrics: {}, findings: [], ...res, phase });
+      const entry = { metrics: {}, findings: [], ...res, phase };
+      if (!VERDICTS.includes(entry.verdict)) {
+        entry.findings = [`probe ${f} returned an invalid verdict "${String(entry.verdict)}"; coerced to fail`, ...entry.findings];
+        entry.verdict = 'fail';
+      }
+      byPhase.set(phase, entry);
     } catch (err) {
       if (m) {
         byPhase.set(m[1], { phase: m[1], verdict: 'fail', metrics: {}, findings: [`probe ${f} failed: ${err.message}`] });
@@ -96,7 +102,8 @@ function renderSummary(result) {
     lines.push(`${p.phase}  ${p.verdict.padEnd(17)} ${Object.entries(p.metrics ?? {}).map(([k, v]) => `${k}=${v}`).join(' ')}`);
     for (const f of p.findings ?? []) lines.push(`      - ${f}`);
   }
-  lines.push('', `overall: ${result.overall}`);
+  const measured = result.phases.filter((p) => ['pass', 'warn', 'fail'].includes(p.verdict)).length;
+  lines.push('', `overall: ${result.overall} (${measured}/${result.phases.length} phases measured)`);
   return lines.join('\n');
 }
 

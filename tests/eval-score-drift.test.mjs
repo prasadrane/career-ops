@@ -104,3 +104,13 @@ test('driftVsLastRun compares meanAbsScoreDelta with the previous p4 runs.tsv ro
     assert.equal(r.metrics.driftVsLastRun, 0.3);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('archetypes agree but mean |score delta| > 1.0 -> warn, not pass', async () => {
+  const root = mkRoot();
+  try {
+    fixture(root, 6, 6, { scoreDelta: 1.4 });
+    const r = await probe({ root, since: SINCE });
+    assert.equal(r.verdict, 'warn');
+    assert.ok(r.findings.some((f) => /scores drifted/.test(f)));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

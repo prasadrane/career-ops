@@ -19,6 +19,8 @@ const hist = (url, portal, status = 'added', { title = 'Role', date = '2026-09-0
 const TRACKER_HEAD = '# T\n\n| # | Date | Company | Role | Score | Status | PDF | Report | Notes | URL |\n|---|---|---|---|---|---|---|---|---|---|\n';
 const trow = (n, status, notes, url) => `| ${n} | 2026-09-02 | Co | Role ${n} | 4.0/5 | ${status} | Y | — | ${notes} | ${url} |\n`;
 
+const evidence = (root) => w(root, 'data/portal-health.tsv', 'timestamp\tcompany\tstatus\n2026-09-10T00:00:00Z\tCo\treachable\n');
+
 function pipeline(root, { verified = 6, unconfirmed = 4 } = {}) {
   const lines = ['# Pipeline', ''];
   for (let i = 0; i < verified; i++) lines.push(`- [${i % 2 ? 'x' : ' '}] https://boards.greenhouse.io/co/jobs/${i} | Co | Role`);
@@ -26,13 +28,15 @@ function pipeline(root, { verified = 6, unconfirmed = 4 } = {}) {
   w(root, 'data/pipeline.md', lines.join('\n') + '\n');
 }
 
-test('10 pipeline rows (6 verified, 4 aggregator-unconfirmed) -> unconfirmedPct 40, warn', async () => {
+test('10 pending rows (6 employer-direct, 4 aggregator-unconfirmed) + liveness evidence -> unconfirmedPct 40, warn', async () => {
   const root = mkRoot();
   try {
     pipeline(root);
+    evidence(root);
     const r = await probe({ root, since: SINCE });
     assert.equal(r.phase, 'p3');
-    assert.equal(r.metrics.verifiedPct, 60);
+    assert.equal(r.metrics.employerDirectPct, 60);
+    assert.equal(r.metrics.livenessEvidence, 1);
     assert.equal(r.metrics.unconfirmedPct, 40);
     assert.equal(r.metrics.aggregatorOnlyPct, 40);
     assert.equal(r.verdict, 'warn');
@@ -43,6 +47,7 @@ test('an aggregator row also_seen at an employer ATS is not aggregator-only; gho
   const root = mkRoot();
   try {
     pipeline(root);
+    evidence(root);
     w(root, 'data/scan-history.tsv', [
       hist('https://www.linkedin.com/jobs/view/1000', 'mcp-jobspipe', 'unconfirmed', { flags: 'also_seen:greenhouse' }),
       hist('https://www.linkedin.com/jobs/view/1001', 'mcp-jobspipe', 'unconfirmed', { flags: 'also_seen:mcp-jobdatalake' }),
@@ -57,6 +62,7 @@ test('an aggregator row also_seen at an employer ATS is not aggregator-only; gho
 test('severe unconfirmed share -> fail; markers [!] count as unconfirmed', async () => {
   const root = mkRoot();
   try {
+    evidence(root);
     w(root, 'data/pipeline.md', [
       '- [ ] https://a.com/1', '- [!] https://www.linkedin.com/jobs/view/1', '- [!] https://www.linkedin.com/jobs/view/2',
       '- [?] https://www.linkedin.com/jobs/view/3', '- [?] https://www.linkedin.com/jobs/view/4', '- [?] https://www.linkedin.com/jobs/view/5',
@@ -151,7 +157,7 @@ test('missing/empty data -> insufficient-data, no throw; below-floor pipeline to
     r = await probe({ root, since: SINCE });
     assert.equal(r.verdict, 'insufficient-data');
     assert.equal(r.metrics.unconfirmedPct, '(n too small)');  // 3 rows: no bare percentage below the floor
-    assert.equal(r.metrics.verifiedPct, '(n too small)');
+    assert.equal(r.metrics.employerDirectPct, '(n too small)');
     assert.equal(r.metrics.aggregatorOnlyPct, '(n too small)');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -166,5 +172,51 @@ test('probe is read-only', async () => {
     const before = snap();
     await probe({ root, since: SINCE });
     assert.deepEqual(snap(), before);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('no liveness evidence at all -> insufficient-data even with a bad inbox; findings say why', async () => {
+  const root = mkRoot();
+  try {
+    pipeline(root);
+    const r = await probe({ root, since: SINCE });
+    assert.equal(r.verdict, 'insufficient-data');
+    assert.equal(r.metrics.livenessEvidence, 0);
+    assert.match(r.findings[0], /no liveness evidence/);
+    assert.equal(r.metrics.unconfirmedPct, 40);          // the metrics are still reported
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('only the Pending section counts; processed rows with a report link are liveness evidence', async () => {
+  const root = mkRoot();
+  try {
+    const lines = ['# Pipeline', '', '## Pending', ''];
+    for (let i = 0; i < 5; i++) lines.push(`- [ ] https://boards.greenhouse.io/co/jobs/${i} | Co | Role`);
+    lines.push('', '## Processed', '');
+    for (let i = 0; i < 20; i++) lines.push(`- [?] https://www.linkedin.com/jobs/view/${i} | Co | Role`);
+    lines.push('- [x] #143 | https://boards.greenhouse.io/co/jobs/99 | Co | Role | 4.2/5 | PDF ok');
+    w(root, 'data/pipeline.md', lines.join('\n') + '\n');
+    const r = await probe({ root, since: SINCE });
+    assert.equal(r.metrics.pipelineRows, 5);
+    assert.equal(r.metrics.unconfirmedPct, 0);
+    assert.equal(r.metrics.livenessEvidence, 1);          // the [x] #143 row (has a report number)
+    assert.equal(r.verdict, 'pass');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('ghost:<score> tokens: high score reads dead, low score is no hint; last_verified:<date> reads live', async () => {
+  const root = mkRoot();
+  try {
+    w(root, 'data/scan-history.tsv', [
+      hist('https://agg.example/1', 'mcp-jobspipe', 'unconfirmed', { flags: 'ghost:80' }),
+      hist('https://agg.example/2', 'mcp-jobspipe', 'unconfirmed', { flags: 'ghost:12,last_verified:2026-10-03' }),
+      hist('https://agg.example/3', 'mcp-jobspipe', 'unconfirmed', { flags: 'ghost:12' }),
+    ].join('\n') + '\n');
+    w(root, 'data/applications.md', TRACKER_HEAD
+      + trow(1, 'Discarded', 'expired at employer', 'https://agg.example/1')
+      + trow(2, 'Applied', 'liveness: active', 'https://agg.example/2')
+      + trow(3, 'Discarded', 'expired at employer', 'https://agg.example/3'));
+    const r = await probe({ root, since: SINCE });
+    assert.deepEqual([r.detail.mcpLivenessAgreement.n, r.detail.mcpLivenessAgreement.agree], [2, 2]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

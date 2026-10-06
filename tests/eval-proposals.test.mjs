@@ -81,3 +81,14 @@ test('CLI: --propose writes proposals.md and leaves protected files unchanged; d
     for (const f of PROTECTED) assert.equal(sha(join(root, f)), before[f], `${f} changed`);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('a zero-yield source that only returned already-known rows is an overlap note, never "consider disabling"', () => {
+  const items = buildProposals([{ phase: 'p1', verdict: 'warn', metrics: {}, findings: [], detail: { sources: [
+    { id: 'mcp-jobspipe', seen: 10, added: 0, addedLast3Runs: 0, everSeen: 10, ingest: { dupesExistingRecent: 7 } },
+    { id: 'mcp-foundrole', seen: 10, added: 0, addedLast3Runs: 0, everSeen: 10 },
+  ] } }]);
+  const jp = items.find((i) => i.id === 'source-mcp-jobspipe');
+  assert.match(jp.text, /overlaps existing ATS coverage, 0 net-new/);
+  assert.doesNotMatch(jp.text, /consider disabling/);
+  assert.match(items.find((i) => i.id === 'source-mcp-foundrole').text, /consider disabling/);
+});

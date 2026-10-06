@@ -102,3 +102,21 @@ test('unprefixed throwing probe exits 1 with stderr, others still printed', () =
     assert.equal(JSON.parse(r.stdout).phases[0].verdict, 'pass');
   } finally { rmSync(d, { recursive: true, force: true }); rmSync(root, { recursive: true, force: true }); }
 });
+
+test('probe returning a verdict outside the contract is coerced to fail with a finding', async () => {
+  const d = probeDir({ 'p1-bad.mjs': "export default async () => ({phase:'p1',verdict:'great',metrics:{},findings:[]});" });
+  try {
+    const { phases } = await runProbes({ root: d, since: new Date() }, ['p1'], d);
+    assert.equal(phases[0].verdict, 'fail');
+    assert.match(phases[0].findings[0], /invalid verdict "great"/);
+  } finally { rmSync(d, { recursive: true, force: true }); }
+});
+
+test('--summary prints how many phases were actually measured', () => {
+  const root = mkRoot();
+  try {
+    const r = run(root, ['--summary', '--no-record']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /overall: insufficient-data \(0\/6 phases measured\)/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

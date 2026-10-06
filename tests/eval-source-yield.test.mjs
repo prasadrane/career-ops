@@ -130,3 +130,46 @@ test('probe is read-only', async () => {
     assert.deepEqual(snap(), before);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+const INGEST_HEADER = 'timestamp\trun_id\tserver\tfiles\tseen\tadded\tdupes_existing\tunconfirmed\terror_reason\n';
+const ing = (ts, run, server, { files = 1, seen = 0, added = 0, dupes = 0, unc = 0, err = '' } = {}) =>
+  [ts, run, server, files, seen, added, dupes, unc, err].join('\t');
+
+test('enabled server whose latest ingest run errored: warn with a prior success, fail without; no ledger needed', async () => {
+  const root = mkRoot();
+  try {
+    fixture(root);
+    w(root, 'data/eval/mcp-ingest.tsv', INGEST_HEADER + [
+      ing('2026-09-02T10:00:00Z', 'r1', 'jobspipe', { seen: 4, added: 2 }),
+      ing('2026-09-03T10:00:00Z', 'r2', 'jobspipe'),
+      ing('2026-09-03T10:00:00Z', 'r2', 'jobspipe', { err: 'malformed-json' }),
+    ].join('\n') + '\n');
+    let r = await probe({ root, since: SINCE, now: NOW });
+    const jp = r.detail.sources.find((s) => s.id === 'mcp-jobspipe');
+    assert.equal(jp.state, 'error');
+    assert.ok(r.findings.some((f) => /mcp-jobspipe: latest ingest run r2 is error/.test(f)));
+    assert.equal(r.verdict, 'warn');
+    w(root, 'data/eval/mcp-ingest.tsv', INGEST_HEADER + [
+      ing('2026-09-03T10:00:00Z', 'r2', 'jobspipe'),
+      ing('2026-09-03T10:00:00Z', 'r2', 'jobspipe', { err: 'malformed-json' }),
+    ].join('\n') + '\n');
+    r = await probe({ root, since: SINCE, now: NOW });
+    assert.equal(r.verdict, 'fail');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('enabled server that saw nothing in its latest ingest run is `empty` (warn); dupes_existing surfaces as overlap', async () => {
+  const root = mkRoot();
+  try {
+    fixture(root);
+    w(root, 'data/eval/mcp-ingest.tsv', INGEST_HEADER + [
+      ing('2026-09-03T10:00:00Z', 'r2', 'jobspipe'),
+      ing('2026-09-03T10:00:00Z', 'r2', 'jobdatalake', { seen: 5, dupes: 5 }),
+    ].join('\n') + '\n');
+    const r = await probe({ root, since: SINCE, now: NOW });
+    assert.equal(r.detail.sources.find((s) => s.id === 'mcp-jobspipe').state, 'empty');
+    assert.equal(r.detail.sources.find((s) => s.id === 'mcp-jobdatalake').ingest.dupesExistingRecent, 5);
+    assert.ok(r.findings.some((f) => /mcp-jobdatalake: overlaps existing ATS coverage/.test(f)));
+    assert.equal(r.verdict, 'warn');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
