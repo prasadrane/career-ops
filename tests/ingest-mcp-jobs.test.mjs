@@ -78,7 +78,7 @@ test('(c) same job from JobsPipe and JobDataLake (different URL spellings) -> ad
     assert.equal(row[2], 'mcp-jobdatalake');
     assert.equal(row[5], 'added');
     assert.match(row[10], /also_seen:mcp-jobspipe/);
-    assert.equal(row[12], 'q1', 'query_id is the appended 13th column');
+    assert.equal(row[row.length - 1], 'q1', 'query_id is the trailing column');
     const pipeline = read(sb.root, 'data/pipeline.md');
     assert.equal(pipeline.split('\n').filter((l) => /^- \[ \] /.test(l)).length, 1);
     assert.match(pipeline, /mcp-jobspipe/);
@@ -202,7 +202,7 @@ test('aggregator rows (FoundRole, Indeed host, unidentified employer) are unconf
     const fr = rows.find((c) => c[0].includes('/jobs/77'));
     assert.equal(fr[0], 'https://example-board.test/jobs/77?token=keep-me&src=fr', 'URL params preserved');
     assert.equal(fr[2], 'mcp-foundrole');
-    assert.equal(fr[12], 'target-companies-chunk-1');
+    assert.equal(fr[fr.length - 1], 'target-companies-chunk-1');
     const pipeline = read(sb.root, 'data/pipeline.md');
     assert.equal(pipeline.split('\n').filter((l) => /^- \[\?\] /.test(l)).length, 4);
     assert.equal(pipeline.split('\n').filter((l) => /^- \[ \] /.test(l)).length, 0);

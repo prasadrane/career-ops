@@ -20,6 +20,7 @@ import { readFileSync, writeFileSync, copyFileSync, mkdirSync, existsSync } from
 import { dirname, join, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { isMainModule } from '../lib/is-main-module.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CANON = readFileSync(join(ROOT, 'documents/resume-format/Prasad_Rane_Resume_Source.tex'), 'utf8').replace(/\r\n/g, '\n');
@@ -178,4 +179,4 @@ function main(argv) {
   return 1;
 }
 
-if (process.argv[1] && process.argv[1].endsWith('reslot-resume.mjs')) process.exit(main(process.argv.slice(2)));
+if (isMainModule(import.meta.url)) process.exit(main(process.argv.slice(2)));
