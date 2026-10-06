@@ -56,7 +56,7 @@ List `needs_confirmation` items separately with URL and question, not as evaluat
 `ingest-mcp-jobs.mjs` (the MCP job-search sweep, `modes/mcp-sources.md`) writes aggregator-sourced postings (FoundRole, aggregator hosts, unidentified employer) as `- [?] URL | Company | Role | ...` instead of `- [ ]`. The marker means the posting is UNCONFIRMED: per AGENTS.md → "Aggregator Listings -- Confirm at the Employer" it is not a real opening until located on the employer's own careers page/ATS.
 
 - **Pipeline mode skips `[?]` rows.** Do not extract, evaluate, report on, or tailor a CV for one, and do not count it in the pending total. Only `- [ ]` rows are processed.
-- To resolve a `[?]` row follow `modes/mcp-sources.md` → "Unconfirmed rows": found at the employer → replace it with the employer URL as `- [ ]` (aggregator URL kept as provenance); not found → stale, mark it in `data/scan-history.tsv` (and `set-status.mjs ... Discarded` if it has a tracker row); no employer ATS → leave `[?]`; employer unidentifiable → Block G signal, stop.
+- To resolve a `[?]` row follow `modes/mcp-sources.md` → "Unconfirmed rows": found at the employer → `node ingest-mcp-jobs.mjs --confirm <aggregator-url> <employer-url>` (rewrites it to `- [ ]` on the employer URL, aggregator URL kept as provenance); not found → `node ingest-mcp-jobs.mjs --stale <aggregator-url>` (moves it to Processed, logs `skipped_expired`; plus `set-status.mjs ... Discarded` if it has a tracker row); no employer ATS → leave `[?]`; employer unidentifiable → Block G signal, stop. Never hand-edit these rows.
 - Known gap: the web inbox does not list `[?]` rows yet (documented follow-up), so reconcile them from this file, not from the web view.
 
 ## Format of pipeline.md

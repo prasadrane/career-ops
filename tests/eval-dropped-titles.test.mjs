@@ -102,6 +102,10 @@ test('scan.mjs: a filtered-out profile-keyword title lands in the log, an unrela
     const portals = join(root, 'portals.yml');
     writeFileSync(portals, 'title_filter:\n  positive:\n    - "Help Desk"\ntracked_companies:\n  - name: Fixture Board\n    careers_url: https://example.invalid/jobs\n    parser:\n      command: node\n      script: tests/fixtures/noc-board.mjs\n');
     const env = { ...process.env, CAREER_OPS_ROOT: root, CAREER_OPS_PORTALS: portals, CAREER_OPS_PROFILE: join(root, 'config', 'profile.yml') };
+    // --dry-run must not write the log
+    const dry = spawnSync(process.execPath, [join(ROOT, 'scan.mjs'), '--dry-run'], { cwd: ROOT, env, encoding: 'utf-8' });
+    assert.equal(dry.status, 0, dry.stderr);
+    assert.equal(existsSync(log(root)), false, 'scan --dry-run created dropped-titles.tsv');
     const run = spawnSync(process.execPath, [join(ROOT, 'scan.mjs')], { cwd: ROOT, env, encoding: 'utf-8' });
     assert.equal(run.status, 0, run.stderr);
     const titles = readDroppedTitles(root).map((r) => r.title);

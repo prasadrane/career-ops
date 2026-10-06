@@ -2616,7 +2616,7 @@ export function sanitizeMarkdownField(value) {
     .replace(/\|/g, '/');
 }
 
-function sanitizePipelineUrl(value) {
+export function sanitizePipelineUrl(value) {
   return normalizeScanUrl(value)
     .replace(/[\\[\]]/g, char => MARKDOWN_ESCAPE_CHARS[char])
     .replace(/\|/g, '%7C');
@@ -2712,6 +2712,15 @@ function postedAtIsoDate(postedAt) {
   if (typeof postedAt !== 'number' || !Number.isFinite(postedAt) || postedAt <= 0) return '';
   return new Date(postedAt).toISOString().slice(0, 10);
 }
+/** `ghost:<score>` / `last_verified:<date>` trust_flags tokens from an MCP offer's source signals. */
+export function sourceSignalTokens(sig) {
+  if (!sig || typeof sig !== 'object') return [];
+  const out = [];
+  if (typeof sig.ghost_score === 'number' && Number.isFinite(sig.ghost_score)) out.push(`ghost:${sig.ghost_score}`);
+  const v = typeof sig.last_verified === 'string' ? sig.last_verified.trim().slice(0, 10) : '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) out.push(`last_verified:${v}`);
+  return out;
+}
 export function formatScanHistoryRow(offer, date, status = 'added') {
   return [
     normalizeScanUrl(offer.url),
@@ -2740,6 +2749,10 @@ export function formatScanHistoryRow(offer, date, status = 'added') {
     [
       ...(trustIsFlagged(offer) ? trustFlagList(offer) : []),
       ...(Array.isArray(offer.alsoSeen) ? offer.alsoSeen.filter((x) => typeof x === 'string' && x).map((x) => `also_seen:${x}`) : []),
+      // MCP freshness hints (ingest-mcp-jobs.mjs `sourceSignals`): `ghost:<score>` and
+      // `last_verified:<date>` tokens, read by the P3 liveness-agreement probe.
+      ...sourceSignalTokens(offer.sourceSignals),
+      ...(Array.isArray(offer.historyFlags) ? offer.historyFlags.filter((x) => typeof x === 'string' && x) : []),
     ].join(','),
     // Normalized company key (#2093): the canonical company form shared across
     // the tracker (normalizeCompanyName — lowercased, punctuation/whitespace
@@ -3932,7 +3945,7 @@ async function main() {
         if (failedField === 'title') {
           totalFilteredTitle++;
           // Near-miss log for the P2 recall probe (never throws; CAREER_OPS_NO_EVAL_LOG=1 disables).
-          await recordDroppedTitle({ root: DATA_ROOT, title: job.title, company: job.company || company.name, portal: provider.id, url: job.url, date });
+          if (!dryRun) await recordDroppedTitle({ root: DATA_ROOT, title: job.title, company: job.company || company.name, portal: provider.id, url: job.url, date });
           continue;
         }
         if (failedField !== null) {

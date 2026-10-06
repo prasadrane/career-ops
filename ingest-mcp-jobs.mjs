@@ -3,6 +3,12 @@
 // MCP job-search servers (JobsPipe, JobDataLake, FoundRole).
 //
 //   node ingest-mcp-jobs.mjs --run <run-id> [--dry-run]
+//   node ingest-mcp-jobs.mjs --confirm <aggregator-url> <employer-url> [--dry-run]
+//   node ingest-mcp-jobs.mjs --stale <aggregator-url> [--dry-run]
+// --confirm / --stale resolve one `- [?]` row of data/pipeline.md deterministically (the
+// agent never hand-edits it): confirm rewrites it to `- [ ]` on the employer URL (aggregator
+// URL kept as provenance) and logs scan-history `added`; stale moves it to Processed and
+// logs `skipped_expired` (note `not found at employer`). Exit 1 when no `[?]` row matches.
 //
 // Reads data/mcp-raw/{run-id}/*.json (envelope shape: see lib/mcp-adapters.mjs),
 // normalizes each row, then applies the SAME filters and dedup scan.mjs applies
@@ -45,7 +51,7 @@
 // filters (MCP queries already carry max_age_days/min_salary_usd; no JD body is fetched).
 // Cooldown-skipped rows are counted but not written to scan-history, unlike scan.mjs.
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import path from 'path';
 import * as yaml from 'js-yaml';
 
@@ -54,6 +60,11 @@ import {
   SCAN_RUNS_PATH,
   appendScanRunSummary,
   appendToPipeline,
+  atomicWriteFile,
+  PIPELINE_PATH,
+  SCAN_HISTORY_PATH,
+  sanitizeMarkdownField,
+  sanitizePipelineUrl,
   appendToScanHistory,
   buildCompanyCanonicalizer,
   buildCooldownFilter,
@@ -82,8 +93,8 @@ import { flagValue, hasFlag, validateFlags } from './lib/cli-flags.mjs';
 import { localToday } from './lib/local-today.mjs';
 import { normalizeJobsPipe, normalizeJobDataLake, normalizeFoundRole, rawRowCount } from './lib/mcp-adapters.mjs';
 
-const USAGE = 'Usage: node ingest-mcp-jobs.mjs --run <run-id> [--dry-run]';
-const KNOWN_FLAGS = ['--run', '--dry-run', '--help', '-h'];
+const USAGE = 'Usage: node ingest-mcp-jobs.mjs --run <run-id> [--dry-run]\n       node ingest-mcp-jobs.mjs --confirm <aggregator-url> <employer-url> [--dry-run]\n       node ingest-mcp-jobs.mjs --stale <aggregator-url> [--dry-run]';
+const KNOWN_FLAGS = ['--run', '--confirm', '--stale', '--dry-run', '--help', '-h'];
 
 const ADAPTERS = {
   jobspipe: normalizeJobsPipe,
@@ -120,22 +131,26 @@ function readPortalsConfig() {
 
 /**
  * Read + normalize every data/mcp-raw/{run}/*.json. Never throws on a bad file.
- * @returns {{jobs: object[], errors: {server: string, reason: string}[], files: number}}
+ * @returns {{jobs: object[], errors: {server: string, reason: string}[], files: number, serverFiles: Map<string, number>}}
  */
 export function loadRun(runDir) {
   const jobs = [];
   const errors = [];
+  const serverFiles = new Map();   // safe server label -> file count (incl. errored files)
   const files = readdirSync(runDir).filter((f) => /\.json$/i.test(f)).sort();
   for (const file of files) {
     const hint = fromFilename(file);
+    const countFile = (srv) => serverFiles.set(safeServer(srv), (serverFiles.get(safeServer(srv)) ?? 0) + 1);
     let text;
     try {
       text = readFileSync(path.join(runDir, file), 'utf-8');
     } catch {
+      countFile(hint.server);
       errors.push({ server: safeServer(hint.server), reason: 'unreadable' });
       continue;
     }
     if (!text.trim()) {
+      countFile(hint.server);
       errors.push({ server: safeServer(hint.server), reason: 'empty' });
       continue;
     }
@@ -143,6 +158,7 @@ export function loadRun(runDir) {
     try {
       raw = JSON.parse(text);
     } catch {
+      countFile(hint.server);
       errors.push({ server: safeServer(hint.server), reason: 'malformed-json' });
       continue;
     }
@@ -150,6 +166,7 @@ export function loadRun(runDir) {
       ? raw.server.trim().toLowerCase()
       : '';
     const server = envelopeServer || hint.server.toLowerCase();
+    countFile(server);
     const adapter = Object.hasOwn(ADAPTERS, server) ? ADAPTERS[server] : null;
     if (!adapter) {
       errors.push({ server: safeServer(server), reason: 'unknown-server' });
@@ -165,7 +182,7 @@ export function loadRun(runDir) {
     }
     jobs.push(...normalized);
   }
-  return { jobs, errors, files: files.length };
+  return { jobs, errors, files: files.length, serverFiles };
 }
 
 function postedAtMs(iso) {
@@ -199,6 +216,14 @@ export function plan(jobs, config, { today }) {
   const ordered = jobs.map((j) => ({ job: j, aggregator: isAggregator(j) }))
     .sort((a, b) => Number(a.aggregator) - Number(b.aggregator));
 
+  const perServer = new Map();
+  const bump = (job, key) => {
+    const srv = String(job.source ?? '').replace(/^mcp-/, '') || 'unknown';
+    const e = perServer.get(srv) ?? { seen: 0, added: 0, unconfirmed: 0, dupes_existing: 0 };
+    e[key]++;
+    perServer.set(srv, e);
+  };
+  for (const j of jobs) bump(j, 'seen');
   const summary = { seen: jobs.length, filtered: { title: 0, location: 0, blacklist: 0, cooldown: 0 }, dupes: 0, added: 0, unconfirmed: 0 };
   const runByUrl = new Map();
   const runByKey = new Map();
@@ -229,9 +254,10 @@ export function plan(jobs, config, { today }) {
     // 2. Seen in a previous run / the tracker. Employer-direct rows are compared by
     // URL and company+role; an aggregator copy is compared by URL AND absorbed into a
     // known company+role (a confirmed employer posting already exists).
-    if (snap.seen.has(dedupUrl)) { summary.dupes++; continue; }
+    if (snap.seen.has(dedupUrl)) { summary.dupes++; bump(job, 'dupes_existing'); continue; }
     if (job.company && matchesSeenCompanyRole({ key, baseKey, seen: snap.seenCompanyRoles, requisitions: seenRequisitions, locatedRequisitions }, requisition)) {
       summary.dupes++;
+      bump(job, 'dupes_existing');
       continue;
     }
     if (cooldownFilter(job).skip) { summary.filtered.cooldown++; continue; }
@@ -246,7 +272,7 @@ export function plan(jobs, config, { today }) {
     }
     if (aggregator && job.company) aggByKey.set(key, entry);
     snap.seen.add(dedupUrl);
-    if (aggregator) summary.unconfirmed++; else summary.added++;
+    if (aggregator) { summary.unconfirmed++; bump(job, 'unconfirmed'); } else { summary.added++; bump(job, 'added'); }
   }
 
   const toOffer = ({ job, aggregator, alsoSeen }) => {
@@ -264,6 +290,7 @@ export function plan(jobs, config, { today }) {
       source: job.source,
       postedAt: postedAtMs(job.posted_at),
       queryId: job.query_id,
+      sourceSignals: job.source_signals,
       alsoSeen: also,
       unconfirmed: aggregator,
       note,
@@ -271,9 +298,37 @@ export function plan(jobs, config, { today }) {
   };
   return {
     summary,
+    perServer,
     live: entries.filter((e) => !e.aggregator).map(toOffer),
     unconfirmed: entries.filter((e) => e.aggregator).map(toOffer),
   };
+}
+
+const INGEST_TSV_HEADER = 'timestamp\trun_id\tserver\tfiles\tseen\tadded\tdupes_existing\tunconfirmed\terror_reason\n';
+
+/**
+ * Append the per-server ingest outcome to data/eval/mcp-ingest.tsv (read by the P1
+ * eval probe): one row per server seen in the run dir, plus one error row (with
+ * its reason) per errored/empty file. Never throws: a log failure must not fail ingest.
+ */
+async function recordIngestRows({ runId, serverFiles, errors, perServer }) {
+  if (process.env.CAREER_OPS_NO_EVAL_LOG === '1') return;
+  try {
+    const file = path.join(getCareerOpsRoot(), 'data', 'eval', 'mcp-ingest.tsv');
+    const ts = new Date().toISOString();
+    const rows = [];
+    for (const srv of [...serverFiles.keys()].sort()) {
+      const c = perServer.get(srv) ?? { seen: 0, added: 0, unconfirmed: 0, dupes_existing: 0 };
+      rows.push([ts, runId, srv, serverFiles.get(srv), c.seen, c.added, c.dupes_existing, c.unconfirmed, '']);
+    }
+    for (const e of errors) rows.push([ts, runId, e.server, 1, 0, 0, 0, 0, e.reason]);
+    if (!rows.length) return;
+    await withPipelineLock(file, () => {
+      mkdirSync(path.dirname(file), { recursive: true });
+      if (!existsSync(file)) writeFileSync(file, INGEST_TSV_HEADER);
+      appendFileSync(file, rows.map((r) => r.join('\t')).join('\n') + '\n');
+    });
+  } catch { /* advisory log only */ }
 }
 
 export async function ingestRun({ runId, dryRun = false }) {
@@ -289,9 +344,9 @@ export async function ingestRun({ runId, dryRun = false }) {
     };
   }
   const config = readPortalsConfig();
-  const { jobs, errors, files } = loadRun(runDir);
+  const { jobs, errors, files, serverFiles } = loadRun(runDir);
   const date = localToday();
-  const { summary, live, unconfirmed } = plan(jobs, config, { today: date });
+  const { summary, live, unconfirmed, perServer } = plan(jobs, config, { today: date });
 
   const droppedTitles = summary.droppedTitles ?? [];
   delete summary.droppedTitles;   // not part of the CLI's JSON summary
@@ -300,12 +355,14 @@ export async function ingestRun({ runId, dryRun = false }) {
     for (const j of droppedTitles) {
       await recordDroppedTitle({ root: getCareerOpsRoot(), title: j.title, company: j.company, portal: j.source, url: j.url, date });
     }
+    await recordIngestRows({ runId, serverFiles, errors, perServer });
     if (live.length > 0) await appendToScanHistory(live, date, 'added');
     if (unconfirmed.length > 0) await appendToScanHistory(unconfirmed, date, 'unconfirmed');
     if (live.length + unconfirmed.length > 0) await appendToPipeline([...live, ...unconfirmed]);
     await withPipelineLock(SCAN_RUNS_PATH, () => appendScanRunSummary({
       timestamp: new Date().toISOString(),
-      status: files > 0 && errors.length === files ? 'failed' : 'completed',
+      // Quiet queries (all files empty) are valid; only unreadable/malformed/unusable files fail a run.
+      status: files > 0 && errors.length === files && errors.some((e) => e.reason !== 'empty') ? 'failed' : 'completed',
       companies: 0,
       boards: 0,
       found: summary.seen,
@@ -325,8 +382,134 @@ export async function ingestRun({ runId, dryRun = false }) {
   return { ...summary, errors };
 }
 
+// --- deterministic [?] resolution (replaces hand-editing data/pipeline.md) ---------------
+
+const UNCONFIRMED_ROW_RE = /^(\s*-\s*)\[\?\]\s*(\S+)(.*)$/;
+const PROCESSED_HEADER_RE = /^##\s+(Processed|Procesadas)\s*$/i;
+
+/** Portal (`mcp-foundrole`, ...) the history first recorded for a URL; '' when unknown. */
+function historyPortalFor(url) {
+  const want = normalizeUrlForDedup(url);
+  try {
+    for (const line of readFileSync(SCAN_HISTORY_PATH, 'utf-8').split(/\r?\n/)) {
+      const c = line.split('\t');
+      if (c[0] && normalizeUrlForDedup(c[0]) === want && c[2]) return c[2];
+    }
+  } catch { /* no history yet */ }
+  return '';
+}
+
+function findUnconfirmed(lines, url) {
+  const want = normalizeUrlForDedup(url);
+  for (let i = 0; i < lines.length; i++) {
+    const m = UNCONFIRMED_ROW_RE.exec(lines[i]);
+    if (m && normalizeUrlForDedup(m[2]) === want) return { index: i, match: m };
+  }
+  return null;
+}
+
+function rowParts(m) {
+  const parts = `${m[2]}${m[3]}`.split(' | ').map((p) => p.trim());
+  return { url: parts[0], company: parts[1] ?? '', title: parts[2] ?? '', rest: parts.slice(3) };
+}
+
+/**
+ * Resolve one `- [?]` aggregator row in data/pipeline.md.
+ *  mode 'confirm': rewrite to `- [ ]` on the employer URL (provenance note keeps the
+ *                  aggregator URL) + scan-history row for the employer URL, status `added`.
+ *  mode 'stale':   move the row to Processed as a struck-through line + scan-history
+ *                  row for the aggregator URL, status `skipped_expired`.
+ * Locked + atomic like every other pipeline writer. Throws {notFound:true} when the URL
+ * has no `[?]` row.
+ */
+export async function resolveUnconfirmed({ mode, url, employerUrl, dryRun = false, pipelinePath = PIPELINE_PATH }) {
+  let result;
+  await withPipelineLock(pipelinePath, async () => {
+    const text = existsSync(pipelinePath) ? readFileSync(pipelinePath, 'utf-8') : '';
+    const eol = text.includes('\r\n') ? '\r\n' : '\n';
+    const lines = text.split(/\r?\n/);
+    const hit = findUnconfirmed(lines, url);
+    if (!hit) throw Object.assign(new Error(`no [?] row for ${url} in ${pipelinePath}`), { notFound: true });
+    const row = rowParts(hit.match);
+    if (mode === 'confirm') {
+      const rest = row.rest.filter((p) => !/^note:/i.test(p));
+      rest.push(`note: via ${sanitizeMarkdownField(url)}; confirmed at employer`);
+      lines[hit.index] = `${hit.match[1]}[ ] ${[sanitizePipelineUrl(employerUrl), row.company, row.title, ...rest].join(' | ')}`;
+      result = { action: 'confirm', url, employer_url: employerUrl, company: row.company, title: row.title };
+    } else {
+      lines.splice(hit.index, 1);
+      const struck = `- [x] ~~${[row.url, row.company, row.title].filter(Boolean).join(' | ')}~~ — not found at employer (mcp ingest)`;
+      const procIdx = lines.findIndex((l) => PROCESSED_HEADER_RE.test(l));
+      if (procIdx === -1) {
+        while (lines.length && lines[lines.length - 1] === '') lines.pop();
+        lines.push('', '## Processed', '', struck, '');
+      } else {
+        let end = lines.findIndex((l, i) => i > procIdx && /^##\s/.test(l));
+        if (end === -1) end = lines.length;
+        let at = end;
+        while (at - 1 > procIdx && lines[at - 1] === '') at--;
+        lines.splice(at, 0, struck);
+      }
+      result = { action: 'stale', url, company: row.company, title: row.title };
+    }
+    if (!dryRun) atomicWriteFile(pipelinePath, lines.join(eol));
+  });
+  result.dry_run = dryRun;
+  if (!dryRun) {
+    const date = localToday();
+    if (mode === 'confirm') {
+      await appendToScanHistory([{
+        url: employerUrl, title: result.title, company: result.company,
+        source: historyPortalFor(url) || 'mcp-confirm', historyFlags: ['confirmed_from:aggregator'],
+      }], date, 'added');
+    } else {
+      await appendToScanHistory([{
+        url, title: result.title, company: result.company,
+        source: historyPortalFor(url) || 'mcp-confirm', historyFlags: ['note:not_found_at_employer'],
+      }], date, 'skipped_expired');
+    }
+  }
+  return result;
+}
+
+async function resolveMain(args) {
+  const dryRun = hasFlag(args, '--dry-run');
+  let mode;
+  let url;
+  let employerUrl;
+  if (hasFlag(args, '--confirm')) {
+    mode = 'confirm';
+    url = flagValue(args, '--confirm');
+    const i = args.indexOf('--confirm');
+    employerUrl = args[i + 2];
+    if (!url || !employerUrl || employerUrl.startsWith('-') || !/^https?:\/\//i.test(employerUrl)) {
+      console.error(`Error: --confirm needs <aggregator-url> <employer-url> (employer URL must be http(s)).\n${USAGE}`);
+      return 1;
+    }
+    if (isAggregatorUrl(employerUrl)) {
+      console.error(`Error: ${employerUrl} is an aggregator URL; --confirm needs the employer's own careers/ATS URL.`);
+      return 1;
+    }
+  } else {
+    mode = 'stale';
+    url = flagValue(args, '--stale');
+  }
+  if (!url || !/^https?:\/\//i.test(url)) {
+    console.error(`Error: a http(s) URL is required.\n${USAGE}`);
+    return 1;
+  }
+  try {
+    console.log(JSON.stringify(await resolveUnconfirmed({ mode, url, employerUrl, dryRun }), null, 2));
+    return 0;
+  } catch (err) {
+    console.error(`Error: ${err.message}`);
+    return 1;
+  }
+}
+
 async function main(args) {
-  validateFlags(args, KNOWN_FLAGS, USAGE, { valueFlags: ['--run'], requireOperand: true });
+  validateFlags(args, KNOWN_FLAGS, USAGE, { valueFlags: ['--run', '--confirm', '--stale'], requireOperand: true });
+  if (hasFlag(args, '--confirm') || hasFlag(args, '--stale')) return resolveMain(args);
   const runId = flagValue(args, '--run');
   if (!hasFlag(args, '--run') || !runId || !RUN_ID_RE.test(runId)) {
     console.error(`Error: --run <run-id> is required (letters, digits, . _ -).\n${USAGE}`);

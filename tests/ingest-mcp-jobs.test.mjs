@@ -417,3 +417,148 @@ test('missing or empty raw dir -> seen 0, no-raw-dir note, exit 0, nothing writt
     assert.equal(existsSync(join(sb.root, 'data', 'scan-history.tsv')), false);
   } finally { sb.done(); }
 });
+
+const tsvRows = (root, rel) => {
+  const lines = read(root, rel).split('\n').filter(Boolean).map((l) => l.split('\t'));
+  const [header, ...rest] = lines;
+  return rest.map((c) => Object.fromEntries(header.map((h, i) => [h, c[i]])));
+};
+
+test('MCP freshness signals land in scan-history trust_flags as ghost:<score> and last_verified:<date>', () => {
+  const sb = sandbox();
+  try {
+    put(sb.raw, 'jobspipe-q1.json', { server: 'jobspipe', query_id: 'q1', rows: [
+      ACME('https://boards.greenhouse.io/acmeai/jobs/4001', { ghost_score: 12, last_verified: '2026-10-03' }),
+      { title: 'Applied AI Engineer', company: 'Plain Co', url: 'https://boards.greenhouse.io/plain/jobs/1', location: 'Remote, US' },
+    ] });
+    assert.equal(ingest(sb.root).code, 0);
+    const rows = history(sb.root);
+    const acme = rows.find((r) => r[0].includes('acmeai'));
+    assert.match(acme[10], /ghost:12/);
+    assert.match(acme[10], /last_verified:2026-10-03/);
+    const plain = rows.find((r) => r[0].includes('/plain/'));
+    assert.doesNotMatch(plain[10] ?? '', /ghost|last_verified/);
+  } finally { sb.done(); }
+});
+
+test('mcp-ingest.tsv: per-server row with seen/added, plus an error row per errored file', () => {
+  const sb = sandbox();
+  try {
+    put(sb.raw, 'jobspipe-q1.json', { server: 'jobspipe', query_id: 'q1', rows: [ACME('https://boards.greenhouse.io/acmeai/jobs/4001')] });
+    put(sb.raw, 'jobdatalake-q1.json', '{ not json');
+    put(sb.raw, 'foundrole-q1.json', { server: 'foundrole', query_id: 'q1', rows: [] });
+    const dry = ingest(sb.root, ['--run', RUN, '--dry-run']);
+    assert.equal(dry.code, 0);
+    assert.equal(existsSync(join(sb.root, 'data', 'eval', 'mcp-ingest.tsv')), false, '--dry-run writes nothing');
+    assert.equal(ingest(sb.root).code, 0);
+    const rows = tsvRows(sb.root, 'data/eval/mcp-ingest.tsv');
+    const jp = rows.find((r) => r.server === 'jobspipe' && !r.error_reason);
+    assert.equal(jp.run_id, RUN);
+    assert.equal(jp.seen, '1');
+    assert.equal(jp.added, '1');
+    assert.ok(rows.some((r) => r.server === 'jobdatalake' && r.error_reason === 'malformed-json'));
+    assert.ok(rows.some((r) => r.server === 'foundrole' && r.error_reason === 'empty'));
+  } finally { sb.done(); }
+});
+
+test('mcp-ingest.tsv: MCP rows duplicating an existing (ATS) posting count in dupes_existing per server', () => {
+  const sb = sandbox();
+  try {
+    put(sb.raw, 'jobspipe-q1.json', { server: 'jobspipe', query_id: 'q1', rows: [ACME('https://boards.greenhouse.io/acmeai/jobs/4001')] });
+    assert.equal(ingest(sb.root).code, 0);
+    // second run (new run id) returns the same posting: now an existing dupe
+    const run2 = join(sb.root, 'data', 'mcp-raw', 'run-2');
+    mkdirSync(run2, { recursive: true });
+    put(run2, 'jobspipe-q1.json', { server: 'jobspipe', query_id: 'q1', rows: [ACME('https://boards.greenhouse.io/acmeai/jobs/4001')] });
+    assert.equal(ingest(sb.root, ['--run', 'run-2']).code, 0);
+    const last = tsvRows(sb.root, 'data/eval/mcp-ingest.tsv').filter((r) => r.run_id === 'run-2' && r.server === 'jobspipe');
+    assert.equal(last[0].dupes_existing, '1');
+    assert.equal(last[0].added, '0');
+  } finally { sb.done(); }
+});
+
+test('scan-runs status: all-empty files complete; malformed-only files fail', () => {
+  const sb = sandbox();
+  try {
+    put(sb.raw, 'jobspipe-q1.json', { server: 'jobspipe', query_id: 'q1', rows: [] });
+    assert.equal(ingest(sb.root).code, 0);
+    const a = read(sb.root, 'data/scan-runs.tsv');
+    assert.match(a, /completed/);
+    assert.doesNotMatch(a, /failed/);
+    const run2 = join(sb.root, 'data', 'mcp-raw', 'run-2');
+    mkdirSync(run2, { recursive: true });
+    put(run2, 'jobspipe-q1.json', '{ nope');
+    assert.equal(ingest(sb.root, ['--run', 'run-2']).code, 0);
+    assert.match(read(sb.root, 'data/scan-runs.tsv'), /failed/);
+  } finally { sb.done(); }
+});
+
+const AGG = 'https://www.indeed.com/viewjob?jk=abc123';
+const EMP = 'https://boards.greenhouse.io/betacorp/jobs/777';
+const PIPE = `# Pipeline
+
+## Pending
+
+- [ ] https://boards.greenhouse.io/other/jobs/1 | Other | Role
+- [?] ${AGG} | Beta Corp | Forward Deployed Engineer | Remote (US) | note: unconfirmed: aggregator listing, locate at employer; mcp-foundrole q:q1
+
+## Processed
+
+- [x] #1 | https://x.example/1 | X | Y | 4.0/5 | PDF ✅
+`;
+
+function seedPipeline(sb) {
+  writeFileSync(join(sb.root, 'data', 'pipeline.md'), PIPE);
+  writeFileSync(join(sb.root, 'data', 'scan-history.tsv'),
+    `${AGG}\t2026-10-01\tmcp-foundrole\tForward Deployed Engineer\tBeta Corp\tunconfirmed\tRemote (US)\n`);
+}
+
+test('--confirm rewrites the [?] row to [ ] on the employer URL with provenance + logs history', () => {
+  const sb = sandbox();
+  try {
+    seedPipeline(sb);
+    const dry = ingest(sb.root, ['--confirm', AGG, EMP, '--dry-run']);
+    assert.equal(dry.code, 0, dry.err);
+    assert.equal(read(sb.root, 'data/pipeline.md'), PIPE, '--dry-run writes nothing');
+    const r = ingest(sb.root, ['--confirm', AGG, EMP]);
+    assert.equal(r.code, 0, r.err);
+    const pipe = read(sb.root, 'data/pipeline.md');
+    assert.doesNotMatch(pipe, /\[\?\]/);
+    const row = pipe.split('\n').find((l) => l.includes('betacorp'));
+    assert.match(row, /^- \[ \] https:\/\/boards\.greenhouse\.io\/betacorp\/jobs\/777 \| Beta Corp \| Forward Deployed Engineer/);
+    assert.match(row, /note: via https:\/\/www\.indeed\.com\/viewjob\?jk=abc123; confirmed at employer/);
+    assert.doesNotMatch(row, /locate at employer/);
+    const h = history(sb.root).find((c) => c[0].includes('betacorp'));
+    assert.equal(h[5], 'added');
+    assert.equal(h[2], 'mcp-foundrole');
+  } finally { sb.done(); }
+});
+
+test('--stale moves the [?] row to Processed and logs skipped_expired', () => {
+  const sb = sandbox();
+  try {
+    seedPipeline(sb);
+    const r = ingest(sb.root, ['--stale', AGG]);
+    assert.equal(r.code, 0, r.err);
+    const pipe = read(sb.root, 'data/pipeline.md');
+    assert.doesNotMatch(pipe, /\[\?\]/);
+    const [pending, processed] = pipe.split('## Processed');
+    assert.doesNotMatch(pending, /indeed/);
+    assert.match(processed, /- \[x\] ~~https:\/\/www\.indeed\.com\/viewjob\?jk=abc123 \| Beta Corp \| Forward Deployed Engineer~~ — not found at employer/);
+    const rows = history(sb.root).filter((c) => c[0].includes('indeed'));
+    assert.equal(rows.at(-1)[5], 'skipped_expired');
+    assert.match(rows.at(-1)[10], /not_found_at_employer/);
+  } finally { sb.done(); }
+});
+
+test('--confirm / --stale exit 1 for an unknown URL, an aggregator employer URL, or missing args', () => {
+  const sb = sandbox();
+  try {
+    seedPipeline(sb);
+    assert.equal(ingest(sb.root, ['--stale', 'https://nowhere.example/x']).code, 1);
+    assert.equal(ingest(sb.root, ['--confirm', 'https://nowhere.example/x', EMP]).code, 1);
+    assert.equal(ingest(sb.root, ['--confirm', AGG, 'https://www.indeed.com/viewjob?jk=zzz']).code, 1);
+    assert.equal(ingest(sb.root, ['--confirm', AGG]).code, 1);
+    assert.equal(read(sb.root, 'data/pipeline.md'), PIPE);
+  } finally { sb.done(); }
+});
