@@ -17,7 +17,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { createHash, randomBytes } from 'crypto';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { withPipelineLock } from './pipeline-lock.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';

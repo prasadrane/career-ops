@@ -46,7 +46,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import path from 'path';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 
 import {
   PORTALS_PATH,

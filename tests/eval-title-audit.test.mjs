@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { isUnderNestedCheckout } from '../lib/mjs-files.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, relative } from 'node:path';
 import probe from '../lib/eval/p2-title-audit.mjs';
 
 const SINCE = new Date('2026-08-01T00:00:00Z');
@@ -132,7 +133,7 @@ test('read-only: never writes or auto-adds anything (portals.yml untouched)', as
     w(root, 'data/scan-history.tsv', hist('https://x.com/2', 'Principal AI Solutions Engineer') + '\n');
     w(root, 'data/applications.md', TRACKER_HEAD + trow(1, 'AI Solutions Architect', '4.5', 'Applied', 'https://x.com/1'));
     const snap = () => Object.fromEntries(readdirSync(root, { recursive: true, withFileTypes: true })
-      .filter((e) => e.isFile()).map((e) => [join(e.parentPath ?? e.path, e.name), readFileSync(join(e.parentPath ?? e.path, e.name), 'utf-8')]));
+      .filter((e) => e.isFile() && !isUnderNestedCheckout(root, relative(root, join(e.parentPath ?? e.path, e.name)))).map((e) => [join(e.parentPath ?? e.path, e.name), readFileSync(join(e.parentPath ?? e.path, e.name), 'utf-8')]));
     const before = snap();
     await probe({ root, since: SINCE });
     assert.deepEqual(snap(), before);

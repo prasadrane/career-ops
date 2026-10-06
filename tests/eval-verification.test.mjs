@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { isUnderNestedCheckout } from '../lib/mjs-files.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, relative } from 'node:path';
 import probe from '../lib/eval/p3-verification.mjs';
 
 const SINCE = new Date('2026-08-01T00:00:00Z');
@@ -161,7 +162,7 @@ test('probe is read-only', async () => {
     pipeline(root);
     w(root, 'data/scan-history.tsv', hist('https://www.linkedin.com/jobs/view/1000', 'mcp-jobspipe', 'unconfirmed') + '\n');
     const snap = () => Object.fromEntries(readdirSync(root, { recursive: true, withFileTypes: true })
-      .filter((e) => e.isFile()).map((e) => [join(e.parentPath ?? e.path, e.name), readFileSync(join(e.parentPath ?? e.path, e.name), 'utf-8')]));
+      .filter((e) => e.isFile() && !isUnderNestedCheckout(root, relative(root, join(e.parentPath ?? e.path, e.name)))).map((e) => [join(e.parentPath ?? e.path, e.name), readFileSync(join(e.parentPath ?? e.path, e.name), 'utf-8')]));
     const before = snap();
     await probe({ root, since: SINCE });
     assert.deepEqual(snap(), before);
