@@ -18,6 +18,8 @@
  *                projects (3 each) — overflow is fixed by trimming, never shrinking.
  *   bold         fewer than 5 \textbf metrics in the experience section.
  *   contact      the contact line mentions both relocation and remote (use exactly one).
+ *   summary-lines / bullet-lines  rendered PDF: summary > 3 lines, or any bullet > 2 lines.
+ *   projects     more than 1 project in Selected Projects.
  *   skill-label  a \skillrow label wider than the 1.15in label box (~16 chars).
  *   pages        PDF beside the .tex is not exactly 1 page (needs pdfinfo; skipped if absent).
  *   docx         .docx beside the .tex has a different font family, or different
@@ -50,6 +52,9 @@ const MAX_BULLETS_OTHER_ROLE = 3;
 const MAX_BULLETS_PROJECT = 3;
 const MIN_BOLD = 5;
 const MAX_SKILL_LABEL = 16;
+const MAX_SUMMARY_LINES = 3;
+const MAX_BULLET_LINES = 2;
+const MAX_PROJECTS = 1;
 
 const FONT_FAMILY = { helvet: 'Arial', mathptmx: 'Times New Roman' };
 
@@ -96,6 +101,31 @@ function docxFacts(docx) {
   if (r.error || r.status !== 0) return null;
   const [font, bullets] = r.stdout.trim().split('|');
   return { font, bullets: Number(bullets) };
+}
+
+function pdfLayout(pdf) {
+  const r = spawnSync('pdftotext', ['-enc', 'UTF-8', '-layout', pdf, '-'], { encoding: 'utf8', maxBuffer: 1 << 24 });
+  return r.error || r.status !== 0 ? null : r.stdout.split(/\r?\n/);
+}
+
+/** Rendered line counts: summary (cap 3) and each bullet (cap 2). */
+export function layoutLineErrors(lines) {
+  const errs = [];
+  const idx = (re) => lines.findIndex((l) => re.test(l));
+  const s0 = idx(/^PROFESSIONAL SUMMARY/), s1 = idx(/^TECHNICAL SKILLS/);
+  if (s0 >= 0 && s1 > s0) {
+    const n = lines.slice(s0 + 1, s1).filter((l) => l.trim()).length;
+    if (n > MAX_SUMMARY_LINES) errs.push({ rule: 'summary-lines', msg: `summary renders as ${n} lines (max ${MAX_SUMMARY_LINES})` });
+  }
+  let cur = null, n = 0, num = 0;
+  const flush = () => { if (cur && n > MAX_BULLET_LINES) errs.push({ rule: 'bullet-lines', msg: `bullet ${num} renders as ${n} lines (max ${MAX_BULLET_LINES}): "${cur.trim().slice(0, 60)}..."` }); };
+  for (const l of lines) {
+    if (/^\s*•/.test(l)) { flush(); cur = l.replace(/^\s*•/, ''); n = 1; num++; }
+    else if (!l.trim() || /^[A-Z][A-Z &]+$/.test(l.trim()) || /\|.*\d{4}\s*$/.test(l)) { flush(); cur = null; }
+    else if (cur !== null) n++;
+  }
+  flush();
+  return errs;
 }
 
 export function checkResumeFormat(rawTex, { lock, texPath } = {}) {
@@ -150,6 +180,9 @@ export function checkResumeFormat(rawTex, { lock, texPath } = {}) {
   const bold = (exp.match(/\\textbf\{/g) ?? []).length;
   if (bold < MIN_BOLD) add('bold', `only ${bold} \\textbf metrics in experience (min ${MIN_BOLD}); bold the number inside each bullet`);
 
+  const projCount = (body.match(/\\projectHeader\{/g) ?? []).length;
+  if (projCount > MAX_PROJECTS) add('projects', `${projCount} projects shown (max ${MAX_PROJECTS}); keep the most relevant one`);
+
   // skill labels
   for (const m of body.matchAll(/\\skillrow\{([^}]*(?:\\&[^}]*)*)\}/g)) {
     const label = unescape(m[1]);
@@ -162,6 +195,8 @@ export function checkResumeFormat(rawTex, { lock, texPath } = {}) {
     if (existsSync(pdf)) {
       const pages = pdfPages(pdf);
       if (pages !== null && pages !== 1) add('pages', `PDF has ${pages} pages (must be 1)`);
+      const lines = pdfLayout(pdf);
+      if (lines) for (const e of layoutLineErrors(lines)) add(e.rule, e.msg);
     }
     const docx = texPath.replace(/\.tex$/, '.docx');
     if (existsSync(docx)) {

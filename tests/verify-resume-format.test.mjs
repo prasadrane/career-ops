@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { checkResumeFormat, loadLock } from '../verify-resume-format.mjs';
+import { checkResumeFormat, layoutLineErrors, loadLock } from '../verify-resume-format.mjs';
 
 const canonical = readFileSync(new URL('../documents/resume-format/Prasad_Rane_Resume_Source.tex', import.meta.url), 'utf8');
 const lock = loadLock();
@@ -37,6 +37,18 @@ test('contact line with both relocation and remote is flagged; either alone pass
   assert.ok(rules(canonical.replace('(open to CA relocation)', '(open to California relocation and US remote)')).includes('contact'));
   assert.ok(!rules(canonical.replace('(open to CA relocation)', '(open to US remote)')).includes('contact'));
   assert.ok(!rules(canonical).includes('contact'));
+});
+
+test('rendered layout: summary over 3 lines and bullets over 2 lines are flagged', () => {
+  const ok = ['PROFESSIONAL SUMMARY', '', 'a', 'b', 'c', '', 'TECHNICAL SKILLS', '', '  \u2022 one', '    two', '  \u2022 single'];
+  assert.deepEqual(layoutLineErrors(ok), []);
+  const bad = ['PROFESSIONAL SUMMARY', 'a', 'b', 'c', 'd', 'TECHNICAL SKILLS', '  \u2022 one', '    two', '    three', 'Acme | Engineer | IL   Jan 2020 - 2021'];
+  assert.deepEqual(layoutLineErrors(bad).map((e) => e.rule).sort(), ['bullet-lines', 'summary-lines']);
+});
+
+test('more than one project is flagged', () => {
+  const two = canonical.replace('\\resumesection{EDUCATION', '\\projectHeader{Other}{Go}{https://x.y}\n\\begin{itemize}\n\\item x\n\\end{itemize}\n\\resumesection{EDUCATION');
+  assert.ok(rules(two).includes('projects'));
 });
 
 test('dropping or reordering sections is flagged; Projects stays optional', () => {

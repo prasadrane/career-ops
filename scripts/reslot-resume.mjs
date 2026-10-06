@@ -11,7 +11,7 @@
  *   - bolding metric tokens (numbers, %, x-to-y ranges) inside bullets
  *   - shortening skill labels longer than 16 chars
  *   - dropping trailing bullets to meet the caps (first role 7, others 3)
- * To fit one page it falls back in order: drop Projects, then drop the last
+ * To fit one page it falls back in order: Projects with 1 bullet, drop Projects, then drop the last
  * bullet of the first role, repeatedly (never changes font, margins, spacing).
  *
  * Usage: node scripts/reslot-resume.mjs <old.tex> [--out new.tex]   (default: overwrite)
@@ -138,7 +138,11 @@ function build(old, { projects, dropFirst }) {
     const list = items.length ? `\n\\begin{itemize}\n${items.map((t) => '\\item ' + boldMetrics(t)).join('\n')}\n\\end{itemize}` : '';
     return h + list;
   }).join('\n\\vspace{4pt}\n');
-  const tail = CANON.slice(CANON.indexOf('\\resumesection{SELECTED PROJECTS}'));
+  let tail = CANON.slice(CANON.indexOf('\\resumesection{SELECTED PROJECTS}'));
+  if (projects === 'one') { // rule 11: keep the single project with only one bullet
+    const items = [...tail.matchAll(/\\item [^\n]*\n/g)];
+    if (items.length > 1) tail = tail.replace(items[1][0], '');
+  }
   const eduOnly = tail.slice(tail.indexOf('\\resumesection{EDUCATION'));
   return pre + fontLine + header
     + `\\resumesection{PROFESSIONAL SUMMARY}\n${boldMetrics(old.summary)}\n\n`
@@ -162,7 +166,7 @@ function main(argv) {
   const out = oi >= 0 ? argv[oi + 1] : src;
   const old = parseOld(readFileSync(src, 'utf8'));
   const attempts = [
-    { projects: true, dropFirst: 0 }, { projects: false, dropFirst: 0 },
+    { projects: true, dropFirst: 0 }, { projects: 'one', dropFirst: 0 }, { projects: 'one', dropFirst: 1 }, { projects: false, dropFirst: 0 },
     { projects: false, dropFirst: 1 }, { projects: false, dropFirst: 2 }, { projects: false, dropFirst: 3 },
   ];
   for (const a of attempts) {
