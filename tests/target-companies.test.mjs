@@ -1,6 +1,6 @@
 // tests/target-companies.test.mjs — target-companies-first scan (Task 9).
-// Loads the committed FIXTURE (data/ is a gitignored user layer), not
-// data/target-companies.yml; the real file has the same content.
+// Loads the committed SYNTHETIC fixture (data/ is a gitignored user layer), not
+// the user's real data/target-companies.yml; it has the same shape and alias cases.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
@@ -22,17 +22,16 @@ test('loadTargets: 100 entries, 25 dotnet then 75 general, order preserved', () 
   assert.equal(t.filter((x) => x.tier === 'general').length, 75);
   assert.ok(t.slice(0, 25).every((x) => x.tier === 'dotnet'));
   assert.ok(t.slice(25).every((x) => x.tier === 'general'));
-  assert.equal(t[0].name, 'Roblox');
+  assert.equal(t[0].name, 'Dotnet Co 01');
 });
 
 test('loadTargets: searchNames split "A / B" and "Name (Alias)" into official names', () => {
   const by = Object.fromEntries(loadTargets(FIXTURE).map((x) => [x.name, x.searchNames]));
-  assert.deepEqual(by['ByteDance / TikTok'], ['ByteDance', 'TikTok']);
-  assert.deepEqual(by['Block (Square)'], ['Block', 'Square']);
-  assert.deepEqual(by['Walt Disney / Disney+'], ['Walt Disney', 'Disney+']);
-  assert.deepEqual(by['Amazon (AWS)'], ['Amazon', 'AWS']);
-  assert.deepEqual(by['Gen Digital (Symantec)'], ['Gen Digital', 'Symantec']);
-  assert.deepEqual(by['Western Digital'], ['Western Digital']);
+  assert.deepEqual(by['Example Corp / Sample Alias'], ['Example Corp', 'Sample Alias']);
+  assert.deepEqual(by['Brand Holdings (Sub Brand)'], ['Brand Holdings', 'Sub Brand']);
+  assert.deepEqual(by['Streaming Co / Plus+'], ['Streaming Co', 'Plus+']);
+  assert.deepEqual(by['Slash Paren Co / Other Name (Third Alias)'], ['Slash Paren Co', 'Other Name', 'Third Alias']);
+  assert.deepEqual(by['Plain Name Ltd'], ['Plain Name Ltd']);
 });
 
 test('chunk: 100 targets -> 5 chunks of <=20 primary names', () => {
@@ -41,7 +40,7 @@ test('chunk: 100 targets -> 5 chunks of <=20 primary names', () => {
   assert.equal(c.length, 5);
   assert.ok(c.every((x) => x.length <= 20));
   assert.equal(c.flat().length, 100);
-  assert.ok(c.flat().includes('ByteDance') && !c.flat().includes('ByteDance / TikTok'));
+  assert.ok(c.flat().includes('Example Corp') && !c.flat().includes('Example Corp / Sample Alias'));
   assert.equal(chunk(t).length, 5, 'default size is 20');
 });
 
@@ -67,7 +66,7 @@ test('discover-ats --in shape: tolerates tier/location keys', () => {
   const { companies, warnings } = parseCompanyInput(readFileSync(FIXTURE, 'utf-8'), []);
   assert.equal(companies.length, 100);
   assert.deepEqual(warnings, []);
-  assert.equal(companies[0].name, 'Roblox');
+  assert.equal(companies[0].name, 'Dotnet Co 01');
 });
 
 function scanWith(extraArgs) {

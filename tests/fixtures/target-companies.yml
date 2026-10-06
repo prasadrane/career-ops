@@ -1,108 +1,106 @@
-# User-layer file (data/*). Target companies scanned FIRST in every pipeline run.
-# Source: list supplied by the user in session 2026-10-04. Order inside a tier = user's priority.
-# tier: dotnet  = .NET / C# stack companies;  general = general tech companies.
-# location = user's preferred hub(s) for that company (free text; used as the MCP `location` hint).
-# `board` is filled in by `node discover-ats.mjs` / the target-first scan once an ATS board resolves; never guess it.
+# SYNTHETIC fixture (fake company names). The real list lives in data/target-companies.yml (user layer, gitignored).
+# Shape: `companies: [{name, tier, location}]`, 25 `dotnet` entries first, then 75 `general`; order inside a tier = priority.
+# Includes alias shapes: "A / B", "Name (Alias)", and a name with both a slash and parentheses.
 companies:
-  # ── .NET / C# tech stack ──
-  - { name: Roblox, tier: dotnet, location: "San Mateo" }
-  - { name: Snap, tier: dotnet, location: "Santa Monica" }
-  - { name: Microsoft, tier: dotnet, location: "Mountain View / San Francisco" }
-  - { name: Unity Technologies, tier: dotnet, location: "San Francisco" }
-  - { name: Adobe, tier: dotnet, location: "San Jose / San Francisco" }
-  - { name: CrowdStrike, tier: dotnet, location: "Sunnyvale" }
-  - { name: Zillow, tier: dotnet, location: "San Francisco" }
-  - { name: Autodesk, tier: dotnet, location: "San Francisco" }
-  - { name: ServiceTitan, tier: dotnet, location: "Glendale" }
-  - { name: Walt Disney / Disney+, tier: dotnet, location: "Burbank / San Francisco" }
-  - { name: Electronic Arts, tier: dotnet, location: "Redwood City" }
-  - { name: Blizzard Entertainment, tier: dotnet, location: "Irvine" }
-  - { name: PlayStation, tier: dotnet, location: "San Mateo" }
-  - { name: BlackRock, tier: dotnet, location: "San Francisco" }
-  - { name: CoStar Group, tier: dotnet, location: "Irvine / San Diego" }
-  - { name: Western Digital, tier: dotnet, location: "San Jose / Irvine" }
-  - { name: Dexcom, tier: dotnet, location: "San Diego" }
-  - { name: Wells Fargo, tier: dotnet, location: "San Francisco" }
-  - { name: Viasat, tier: dotnet, location: "Carlsbad" }
-  - { name: Esri, tier: dotnet, location: "Redlands" }
-  - { name: Charles Schwab, tier: dotnet, location: "San Francisco" }
-  - { name: Trimble, tier: dotnet, location: "Sunnyvale" }
-  - { name: Edwards Lifesciences, tier: dotnet, location: "Irvine" }
-  - { name: First American, tier: dotnet, location: "Santa Ana" }
-  - { name: CoreLogic, tier: dotnet, location: "Irvine" }
-  # ── General tech stack ──
-  - { name: OpenAI, tier: general, location: "San Francisco" }
-  - { name: Anthropic, tier: general, location: "San Francisco" }
-  - { name: Databricks, tier: general, location: "San Francisco" }
-  - { name: Stripe, tier: general, location: "San Francisco / South San Francisco" }
-  - { name: Meta, tier: general, location: "Menlo Park" }
-  - { name: Netflix, tier: general, location: "Los Gatos" }
-  - { name: Snowflake, tier: general, location: "San Mateo" }
-  - { name: Pinterest, tier: general, location: "San Francisco" }
-  - { name: Plaid, tier: general, location: "San Francisco" }
-  - { name: Airbnb, tier: general, location: "San Francisco" }
-  - { name: Coinbase, tier: general, location: "San Francisco" }
-  - { name: Uber, tier: general, location: "San Francisco" }
-  - { name: DoorDash, tier: general, location: "San Francisco" }
-  - { name: Google, tier: general, location: "Mountain View" }
-  - { name: Apple, tier: general, location: "Cupertino" }
-  - { name: Robinhood, tier: general, location: "Menlo Park" }
-  - { name: Lyft, tier: general, location: "San Francisco" }
-  - { name: Instacart, tier: general, location: "San Francisco" }
-  - { name: ByteDance / TikTok, tier: general, location: "San Jose" }
-  - { name: Chime, tier: general, location: "San Francisco" }
-  - { name: Palantir, tier: general, location: "Palo Alto" }
-  - { name: Figma, tier: general, location: "San Francisco" }
-  - { name: Waymo, tier: general, location: "Mountain View" }
-  - { name: Dropbox, tier: general, location: "San Francisco" }
-  - { name: Nvidia, tier: general, location: "Santa Clara" }
-  - { name: Block (Square), tier: general, location: "San Francisco" }
-  - { name: Cruise, tier: general, location: "San Francisco" }
-  - { name: LinkedIn, tier: general, location: "Sunnyvale" }
-  - { name: Affirm, tier: general, location: "San Francisco" }
-  - { name: Asana, tier: general, location: "San Francisco" }
-  - { name: Notion, tier: general, location: "San Francisco" }
-  - { name: Zoom, tier: general, location: "San Jose" }
-  - { name: Palo Alto Networks, tier: general, location: "Santa Clara" }
-  - { name: Atlassian, tier: general, location: "San Francisco" }
-  - { name: Rippling, tier: general, location: "San Francisco" }
-  - { name: Datadog, tier: general, location: "San Francisco" }
-  - { name: Twilio, tier: general, location: "San Francisco" }
-  - { name: HashiCorp, tier: general, location: "San Francisco" }
-  - { name: Cloudflare, tier: general, location: "San Francisco" }
-  - { name: Slack, tier: general, location: "San Francisco" }
-  - { name: Samsara, tier: general, location: "San Francisco" }
-  - { name: Rubrik, tier: general, location: "Palo Alto" }
-  - { name: Nutanix, tier: general, location: "San Jose" }
-  - { name: Okta, tier: general, location: "San Francisco" }
-  - { name: Pure Storage, tier: general, location: "Mountain View" }
-  - { name: Amazon (AWS), tier: general, location: "Bay Area hubs" }
-  - { name: Zscaler, tier: general, location: "San Jose" }
-  - { name: Salesforce, tier: general, location: "San Francisco" }
-  - { name: GitHub, tier: general, location: "San Francisco" }
-  - { name: Box, tier: general, location: "Redwood City" }
-  - { name: Workday, tier: general, location: "Pleasanton" }
-  - { name: Splunk, tier: general, location: "San Francisco" }
-  - { name: Intuit, tier: general, location: "Mountain View" }
-  - { name: Visa, tier: general, location: "Foster City" }
-  - { name: PayPal, tier: general, location: "San Jose" }
-  - { name: Cisco, tier: general, location: "San Jose" }
-  - { name: Juniper Networks, tier: general, location: "Sunnyvale" }
-  - { name: eBay, tier: general, location: "San Jose" }
-  - { name: Oracle, tier: general, location: "Redwood Shores" }
-  - { name: Broadcom, tier: general, location: "San Jose" }
-  - { name: ServiceNow, tier: general, location: "Santa Clara" }
-  - { name: Intel, tier: general, location: "Santa Clara" }
-  - { name: AMD, tier: general, location: "Santa Clara" }
-  - { name: Roku, tier: general, location: "San Jose" }
-  - { name: Applied Materials, tier: general, location: "Santa Clara" }
-  - { name: KLA, tier: general, location: "Milpitas" }
-  - { name: Qualcomm, tier: general, location: "San Diego" }
-  - { name: Illumina, tier: general, location: "San Diego" }
-  - { name: Veeva Systems, tier: general, location: "Pleasanton" }
-  - { name: Procore, tier: general, location: "Carpinteria" }
-  - { name: Dolby, tier: general, location: "San Francisco" }
-  - { name: Marvell, tier: general, location: "Santa Clara" }
-  - { name: Gen Digital (Symantec), tier: general, location: "San Jose" }
-  - { name: Yahoo, tier: general, location: "Sunnyvale" }
-  - { name: Yelp, tier: general, location: "San Francisco" }
+  # -- dotnet tier --
+  - { name: Dotnet Co 01, tier: dotnet, location: "Hub 01" }
+  - { name: Dotnet Co 02, tier: dotnet, location: "Hub 02" }
+  - { name: Dotnet Co 03, tier: dotnet, location: "Hub 03" }
+  - { name: Dotnet Co 04, tier: dotnet, location: "Hub 04" }
+  - { name: Dotnet Co 05, tier: dotnet, location: "Hub 05" }
+  - { name: Dotnet Co 06, tier: dotnet, location: "Hub 06" }
+  - { name: Dotnet Co 07, tier: dotnet, location: "Hub 07" }
+  - { name: Dotnet Co 08, tier: dotnet, location: "Hub 08" }
+  - { name: Dotnet Co 09, tier: dotnet, location: "Hub 09" }
+  - { name: Dotnet Co 10, tier: dotnet, location: "Hub 10" }
+  - { name: Dotnet Co 11, tier: dotnet, location: "Hub 11" }
+  - { name: Dotnet Co 12, tier: dotnet, location: "Hub 12" }
+  - { name: Dotnet Co 13, tier: dotnet, location: "Hub 13" }
+  - { name: Dotnet Co 14, tier: dotnet, location: "Hub 14" }
+  - { name: Dotnet Co 15, tier: dotnet, location: "Hub 15" }
+  - { name: Dotnet Co 16, tier: dotnet, location: "Hub 16" }
+  - { name: Dotnet Co 17, tier: dotnet, location: "Hub 17" }
+  - { name: Dotnet Co 18, tier: dotnet, location: "Hub 18" }
+  - { name: Dotnet Co 19, tier: dotnet, location: "Hub 19" }
+  - { name: Dotnet Co 20, tier: dotnet, location: "Hub 20" }
+  - { name: Dotnet Co 21, tier: dotnet, location: "Hub 21" }
+  - { name: Dotnet Co 22, tier: dotnet, location: "Hub 22" }
+  - { name: Dotnet Co 23, tier: dotnet, location: "Hub 23" }
+  - { name: Dotnet Co 24, tier: dotnet, location: "Hub 24" }
+  - { name: Dotnet Co 25, tier: dotnet, location: "Hub 25" }
+  # -- general tier --
+  - { name: "Example Corp / Sample Alias", tier: general, location: "Hub 01" }
+  - { name: "Brand Holdings (Sub Brand)", tier: general, location: "Hub 02" }
+  - { name: "Slash Paren Co / Other Name (Third Alias)", tier: general, location: "Hub 03" }
+  - { name: "Plain Name Ltd", tier: general, location: "Hub 04" }
+  - { name: "Streaming Co / Plus+", tier: general, location: "Hub 05" }
+  - { name: "General Co 06", tier: general, location: "Hub 06" }
+  - { name: "General Co 07", tier: general, location: "Hub 07" }
+  - { name: "General Co 08", tier: general, location: "Hub 08" }
+  - { name: "General Co 09", tier: general, location: "Hub 09" }
+  - { name: "General Co 10", tier: general, location: "Hub 10" }
+  - { name: "General Co 11", tier: general, location: "Hub 11" }
+  - { name: "General Co 12", tier: general, location: "Hub 12" }
+  - { name: "General Co 13", tier: general, location: "Hub 13" }
+  - { name: "General Co 14", tier: general, location: "Hub 14" }
+  - { name: "General Co 15", tier: general, location: "Hub 15" }
+  - { name: "General Co 16", tier: general, location: "Hub 16" }
+  - { name: "General Co 17", tier: general, location: "Hub 17" }
+  - { name: "General Co 18", tier: general, location: "Hub 18" }
+  - { name: "General Co 19", tier: general, location: "Hub 19" }
+  - { name: "General Co 20", tier: general, location: "Hub 20" }
+  - { name: "General Co 21", tier: general, location: "Hub 21" }
+  - { name: "General Co 22", tier: general, location: "Hub 22" }
+  - { name: "General Co 23", tier: general, location: "Hub 23" }
+  - { name: "General Co 24", tier: general, location: "Hub 24" }
+  - { name: "General Co 25", tier: general, location: "Hub 25" }
+  - { name: "General Co 26", tier: general, location: "Hub 26" }
+  - { name: "General Co 27", tier: general, location: "Hub 27" }
+  - { name: "General Co 28", tier: general, location: "Hub 28" }
+  - { name: "General Co 29", tier: general, location: "Hub 29" }
+  - { name: "General Co 30", tier: general, location: "Hub 30" }
+  - { name: "General Co 31", tier: general, location: "Hub 31" }
+  - { name: "General Co 32", tier: general, location: "Hub 32" }
+  - { name: "General Co 33", tier: general, location: "Hub 33" }
+  - { name: "General Co 34", tier: general, location: "Hub 34" }
+  - { name: "General Co 35", tier: general, location: "Hub 35" }
+  - { name: "General Co 36", tier: general, location: "Hub 36" }
+  - { name: "General Co 37", tier: general, location: "Hub 37" }
+  - { name: "General Co 38", tier: general, location: "Hub 38" }
+  - { name: "General Co 39", tier: general, location: "Hub 39" }
+  - { name: "General Co 40", tier: general, location: "Hub 40" }
+  - { name: "General Co 41", tier: general, location: "Hub 41" }
+  - { name: "General Co 42", tier: general, location: "Hub 42" }
+  - { name: "General Co 43", tier: general, location: "Hub 43" }
+  - { name: "General Co 44", tier: general, location: "Hub 44" }
+  - { name: "General Co 45", tier: general, location: "Hub 45" }
+  - { name: "General Co 46", tier: general, location: "Hub 46" }
+  - { name: "General Co 47", tier: general, location: "Hub 47" }
+  - { name: "General Co 48", tier: general, location: "Hub 48" }
+  - { name: "General Co 49", tier: general, location: "Hub 49" }
+  - { name: "General Co 50", tier: general, location: "Hub 50" }
+  - { name: "General Co 51", tier: general, location: "Hub 51" }
+  - { name: "General Co 52", tier: general, location: "Hub 52" }
+  - { name: "General Co 53", tier: general, location: "Hub 53" }
+  - { name: "General Co 54", tier: general, location: "Hub 54" }
+  - { name: "General Co 55", tier: general, location: "Hub 55" }
+  - { name: "General Co 56", tier: general, location: "Hub 56" }
+  - { name: "General Co 57", tier: general, location: "Hub 57" }
+  - { name: "General Co 58", tier: general, location: "Hub 58" }
+  - { name: "General Co 59", tier: general, location: "Hub 59" }
+  - { name: "General Co 60", tier: general, location: "Hub 60" }
+  - { name: "General Co 61", tier: general, location: "Hub 61" }
+  - { name: "General Co 62", tier: general, location: "Hub 62" }
+  - { name: "General Co 63", tier: general, location: "Hub 63" }
+  - { name: "General Co 64", tier: general, location: "Hub 64" }
+  - { name: "General Co 65", tier: general, location: "Hub 65" }
+  - { name: "General Co 66", tier: general, location: "Hub 66" }
+  - { name: "General Co 67", tier: general, location: "Hub 67" }
+  - { name: "General Co 68", tier: general, location: "Hub 68" }
+  - { name: "General Co 69", tier: general, location: "Hub 69" }
+  - { name: "General Co 70", tier: general, location: "Hub 70" }
+  - { name: "General Co 71", tier: general, location: "Hub 71" }
+  - { name: "General Co 72", tier: general, location: "Hub 72" }
+  - { name: "General Co 73", tier: general, location: "Hub 73" }
+  - { name: "General Co 74", tier: general, location: "Hub 74" }
+  - { name: "General Co 75", tier: general, location: "Hub 75" }
